@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+
+{% block title %}Select Workout{% endblock %}
+
+{% block body %}
+<div class="min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="bg-dark-800 border-b border-dark-600 px-4 py-4 safe-area-inset">
+        <div class="max-w-lg mx-auto flex items-center justify-between">
+            <div>
+                <h1 class="text-xl font-semibold text-gray-100">Your Workouts</h1>
+                <p class="text-sm text-gray-500 mt-1">{{ routine.name }}</p>
+            </div>
+            
+            <!-- User Menu -->
+            <div class="flex items-center gap-3">
+                {% if current_user %}
+                <a href="{{ url_for('history') }}" class="text-gray-400 hover:text-gray-200 transition-colors" title="History">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                </a>
+                <a href="{{ url_for('profile') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
+                    <div class="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-sm font-medium">
+                        {{ current_user.display_name[0] | upper if current_user.display_name else current_user.email[0] | upper }}
+                    </div>
+                </a>
+                {% else %}
+                <a href="{{ url_for('login') }}" class="text-sm text-accent hover:text-accent/80 transition-colors">
+                    Log in
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <main class="flex-1 px-4 py-6">
+        <div class="max-w-lg mx-auto space-y-4">
+            {% for day in routine.days %}
+            <a href="/workout/{{ day.day_number }}" 
+               class="block bg-dark-800 border border-dark-600 rounded-xl p-5 transition-workout hover:border-dark-500 hover:bg-dark-700 active:scale-[0.98]">
+                
+                <div class="flex items-start justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-3 mb-2">
+                            <span class="flex items-center justify-center w-8 h-8 rounded-lg bg-dark-600 text-accent font-mono text-sm font-medium">
+                                {{ day.day_number }}
+                            </span>
+                            <h2 class="text-lg font-semibold text-gray-100">{{ day.name }}</h2>
+                        </div>
+                        
+                        <p class="text-sm text-gray-500 mb-3">
+                            {{ day.exercises | length }} exercises
+                        </p>
+                        
+                        <!-- Muscle group tags -->
+                        <div class="flex flex-wrap gap-2">
+                            {% for focus in day.focus[:4] %}
+                            <span class="px-2 py-1 text-xs rounded-md bg-dark-600 text-gray-400 capitalize">
+                                {{ focus | replace('_', ' ') }}
+                            </span>
+                            {% endfor %}
+                            {% if day.focus | length > 4 %}
+                            <span class="px-2 py-1 text-xs rounded-md bg-dark-600 text-gray-500">
+                                +{{ day.focus | length - 4 }}
+                            </span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    
+                    <!-- Arrow icon -->
+                    <div class="text-gray-600 ml-4">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </div>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+    </main>
+    
+    <!-- Footer -->
+    <footer class="bg-dark-800 border-t border-dark-600 px-4 py-3 safe-area-inset">
+        <div class="max-w-lg mx-auto text-center">
+            <p class="text-xs text-gray-600">{{ routine.description }}</p>
+        </div>
+    </footer>
+</div>
+{% endblock %}

@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Profile{% endblock %}
+
+{% block body %}
+<div class="min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="bg-dark-800 border-b border-dark-600 px-4 py-4 safe-area-inset">
+        <div class="max-w-lg mx-auto flex items-center justify-between">
+            <a href="{{ url_for('index') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+                <span class="text-sm">Back</span>
+            </a>
+            
+            <h1 class="text-lg font-semibold text-gray-100">Profile</h1>
+            
+            <div class="w-16"></div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <main class="flex-1 px-4 py-6">
+        <div class="max-w-lg mx-auto space-y-6">
+            
+            <!-- Profile Card -->
+            <div class="bg-dark-800 border border-dark-600 rounded-xl p-6">
+                <div class="flex items-center gap-4 mb-6">
+                    <div class="w-16 h-16 rounded-full bg-accent/20 flex items-center justify-center text-accent text-2xl font-semibold">
+                        {{ profile.display_name[0] | upper if profile and profile.display_name else current_user.email[0] | upper }}
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-100">
+                            {{ profile.display_name if profile and profile.display_name else 'User' }}
+                        </h2>
+                        <p class="text-gray-500">{{ current_user.email }}</p>
+                    </div>
+                </div>
+                
+                <!-- Stats -->
+                <div class="grid grid-cols-2 gap-4 pt-4 border-t border-dark-600">
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-accent">{{ profile.days_per_week if profile else 3 }}</p>
+                        <p class="text-sm text-gray-500">Days/Week</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-accent">{{ profile.split_type | upper if profile and profile.split_type else 'PPL' }}</p>
+                        <p class="text-sm text-gray-500">Split Type</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Quick Links -->
+            <div class="space-y-2">
+                <a href="{{ url_for('history') }}" class="flex items-center justify-between w-full bg-dark-800 border border-dark-600 rounded-xl p-4 hover:bg-dark-700 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center text-gray-400">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                        </div>
+                        <span class="text-gray-100">Workout History</span>
+                    </div>
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+            </div>
+            
+            <!-- Logout -->
+            <a href="{{ url_for('logout') }}" 
+               class="flex items-center justify-center gap-2 w-full py-3 border border-red-500/30 rounded-xl text-red-400 hover:bg-red-500/10 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+                </svg>
+                Log Out
+            </a>
+            
+        </div>
+    </main>
+</div>
+{% endblock %}
