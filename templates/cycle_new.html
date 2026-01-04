@@ -13,9 +13,7 @@
                 </svg>
                 <span class="text-sm">Cancel</span>
             </a>
-            
             <h1 class="text-base font-semibold text-gray-100">New Training Cycle</h1>
-            
             <div class="w-16"></div>
         </div>
     </header>
@@ -28,16 +26,12 @@
                     <span class="flex items-center justify-center w-6 h-6 rounded-full bg-accent text-dark-900 text-xs font-bold">1</span>
                     <span class="text-sm text-gray-300">Setup</span>
                 </div>
-                <div class="flex-1 h-0.5 bg-dark-600 mx-3">
-                    <div id="progress-line-1" class="h-full bg-accent transition-all" style="width: 0%"></div>
-                </div>
+                <div class="flex-1 h-0.5 bg-dark-600 mx-3"><div id="progress-line-1" class="h-full bg-accent transition-all" style="width: 0%"></div></div>
                 <div class="flex items-center gap-2" id="step-2-indicator">
                     <span class="flex items-center justify-center w-6 h-6 rounded-full bg-dark-600 text-gray-500 text-xs font-bold">2</span>
                     <span class="text-sm text-gray-500">Schedule</span>
                 </div>
-                <div class="flex-1 h-0.5 bg-dark-600 mx-3">
-                    <div id="progress-line-2" class="h-full bg-accent transition-all" style="width: 0%"></div>
-                </div>
+                <div class="flex-1 h-0.5 bg-dark-600 mx-3"><div id="progress-line-2" class="h-full bg-accent transition-all" style="width: 0%"></div></div>
                 <div class="flex items-center gap-2" id="step-3-indicator">
                     <span class="flex items-center justify-center w-6 h-6 rounded-full bg-dark-600 text-gray-500 text-xs font-bold">3</span>
                     <span class="text-sm text-gray-500">Exercises</span>
@@ -46,81 +40,78 @@
         </div>
     </div>
     
-    <!-- Main Content -->
-    <main class="flex-1 px-4 py-6">
+    <main class="flex-1 px-4 py-6 pb-24">
         <div class="max-w-2xl mx-auto">
             
             <!-- Step 1: Basic Setup -->
             <div id="step-1" class="step-content">
                 <h2 class="text-xl font-semibold text-gray-100 mb-6">Set Up Your Cycle</h2>
                 
-                <!-- Copy from Previous Option -->
-                {% if previous_cycle %}
-                <div class="mb-6 p-4 bg-dark-800 border border-dark-600 rounded-xl">
-                    <label class="flex items-start gap-3 cursor-pointer">
-                        <input type="checkbox" id="copy-previous" 
-                               class="mt-1 w-5 h-5 rounded border-dark-500 bg-dark-700 text-accent focus:ring-accent">
-                        <div>
-                            <span class="font-medium text-gray-100">Copy from previous cycle</span>
-                            <p class="text-sm text-gray-500 mt-1">
-                                Start with exercises from "{{ previous_cycle.name }}" and make adjustments
-                            </p>
-                        </div>
-                    </label>
-                </div>
-                {% endif %}
-                
                 <div class="space-y-5 bg-dark-800 border border-dark-600 rounded-xl p-5">
-                    <!-- Cycle Name -->
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Cycle Name (optional)</label>
-                        <input type="text" id="cycle-name" 
-                               placeholder="e.g., Spring Cut, Strength Block"
+                        <input type="text" id="cycle-name" placeholder="e.g., Spring Cut, Strength Block"
                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
                     </div>
                     
-                    <!-- Split Type -->
+                    <!-- Split Type - Same as Profile -->
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Training Split</label>
-                        <select id="split-type" 
-                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
-                            <option value="ppl_3day" {{ 'selected' if profile and profile.split_type == 'ppl_3day' else '' }}>PPL × 2 (3 days/week)</option>
-                            <option value="ppl_6day" {{ 'selected' if profile and profile.split_type == 'ppl_6day' else '' }}>PPL (6 days/week)</option>
-                            <option value="upper_lower_4day" {{ 'selected' if profile and profile.split_type == 'upper_lower_4day' else '' }}>Upper/Lower (4 days/week)</option>
-                            <option value="full_body_3day" {{ 'selected' if profile and profile.split_type == 'full_body_3day' else '' }}>Full Body (3 days/week)</option>
-                        </select>
-                    </div>
-                    
-                    <!-- Cycle Length -->
-                    <div>
-                        <label class="block text-sm font-medium text-gray-400 mb-2">Cycle Length</label>
-                        <div class="grid grid-cols-3 gap-3">
-                            {% for weeks in [4, 6, 8] %}
-                            <button type="button" onclick="selectCycleLength({{ weeks }})"
-                                    class="cycle-length-btn py-3 rounded-lg border text-center transition-colors
-                                           {{ 'bg-accent border-accent text-dark-900' if (profile and profile.cycle_length_weeks == weeks) or (not profile and weeks == 6) else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
-                                    data-weeks="{{ weeks }}">
-                                {{ weeks }} weeks
+                        <div class="grid grid-cols-2 gap-2">
+                            {% set current_split = profile.split_type if profile and profile.split_type else 'ppl' %}
+                            {% set splits = [
+                                ('full_body', 'Full Body', 'All muscles each session'),
+                                ('upper_lower', 'Upper / Lower', 'Alternate upper & lower'),
+                                ('ppl', 'Push / Pull / Legs', 'Classic bodybuilding split'),
+                                ('custom', 'Custom', 'Build your own')
+                            ] %}
+                            {% for value, label, desc in splits %}
+                            <button type="button" onclick="selectSplit('{{ value }}')"
+                                    class="split-btn p-3 rounded-lg border text-left transition-colors
+                                           {{ 'bg-accent/20 border-accent text-accent' if current_split == value or (current_split in ['ppl_3day', 'ppl_6day'] and value == 'ppl') else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-split="{{ value }}">
+                                <span class="block font-medium text-sm">{{ label }}</span>
+                                <span class="block text-xs opacity-70 mt-0.5">{{ desc }}</span>
                             </button>
                             {% endfor %}
                         </div>
                     </div>
                     
-                    <!-- Start Date -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Training Days Per Week</label>
+                        <div class="grid grid-cols-5 gap-2">
+                            {% set default_days = profile.days_per_week if profile and profile.days_per_week else 3 %}
+                            {% for day in [2, 3, 4, 5, 6] %}
+                            <button type="button" onclick="selectDaysPerWeek({{ day }})"
+                                    class="days-btn py-3 rounded-lg border text-center font-mono transition-colors
+                                           {{ 'bg-accent border-accent text-dark-900' if default_days == day else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-days="{{ day }}">{{ day }}</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Cycle Length</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            {% set default_length = profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 %}
+                            {% for weeks in [4, 6, 8] %}
+                            <button type="button" onclick="selectCycleLength({{ weeks }})"
+                                    class="length-btn py-3 rounded-lg border text-center transition-colors
+                                           {{ 'bg-accent border-accent text-dark-900' if default_length == weeks else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-weeks="{{ weeks }}">{{ weeks }} weeks</button>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Start Date</label>
-                        <input type="date" id="start-date" 
-                               value="{{ next_monday.isoformat() }}"
-                               min="{{ today.isoformat() }}"
+                        <input type="date" id="start-date" value="{{ next_monday.isoformat() }}" min="{{ today.isoformat() }}"
                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
                         <p class="text-xs text-gray-500 mt-1">Cycles start on Monday</p>
                     </div>
                 </div>
                 
-                <button onclick="goToStep(2)" 
-                        class="w-full mt-6 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">
-                    Continue
-                </button>
+                <button onclick="goToStep(2)" class="w-full mt-6 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">Continue</button>
             </div>
             
             <!-- Step 2: Schedule -->
@@ -129,65 +120,97 @@
                 <p class="text-gray-500 mb-6">Choose which days you'll train each week</p>
                 
                 <div class="bg-dark-800 border border-dark-600 rounded-xl p-5">
-                    <div id="schedule-grid" class="space-y-3">
-                        <!-- Populated dynamically based on split type -->
-                    </div>
+                    <div id="schedule-grid" class="space-y-3"></div>
                 </div>
                 
                 <div class="flex gap-3 mt-6">
-                    <button onclick="goToStep(1)" 
-                            class="flex-1 py-3 border border-dark-600 text-gray-400 rounded-xl hover:bg-dark-800 transition-colors">
-                        Back
-                    </button>
-                    <button onclick="goToStep(3)" 
-                            class="flex-1 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">
-                        Continue
-                    </button>
+                    <button onclick="goToStep(1)" class="flex-1 py-3 border border-dark-600 text-gray-400 rounded-xl hover:bg-dark-800 transition-colors">Back</button>
+                    <button onclick="goToStep(3)" class="flex-1 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">Continue</button>
                 </div>
             </div>
             
             <!-- Step 3: Exercises -->
             <div id="step-3" class="step-content hidden">
-                <h2 class="text-xl font-semibold text-gray-100 mb-2">Review Exercises</h2>
-                <p class="text-gray-500 mb-6">These exercises will be used throughout your cycle. Tap to swap.</p>
-                
-                <div id="exercises-review" class="space-y-4">
-                    <!-- Populated dynamically -->
+                <div class="flex items-center justify-between mb-6">
+                    <div>
+                        <h2 class="text-xl font-semibold text-gray-100">Review Exercises</h2>
+                        <p class="text-gray-500">Tap to swap, + to add, × to remove</p>
+                    </div>
                 </div>
+                
+                <div id="exercises-review" class="space-y-4"></div>
                 
                 <div class="flex gap-3 mt-6">
-                    <button onclick="goToStep(2)" 
-                            class="flex-1 py-3 border border-dark-600 text-gray-400 rounded-xl hover:bg-dark-800 transition-colors">
-                        Back
-                    </button>
-                    <button onclick="createCycle()" id="create-btn"
-                            class="flex-1 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">
-                        Create Cycle
-                    </button>
+                    <button onclick="goToStep(2)" class="flex-1 py-3 border border-dark-600 text-gray-400 rounded-xl hover:bg-dark-800 transition-colors">Back</button>
+                    <button onclick="createCycle()" id="create-btn" class="flex-1 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">Create Cycle</button>
                 </div>
             </div>
-            
         </div>
     </main>
 </div>
 
-<!-- Exercise Swap Modal -->
-<div id="swap-modal" class="fixed inset-0 z-50 hidden">
-    <div class="absolute inset-0 bg-black/70" onclick="closeSwapModal()"></div>
-    <div class="absolute bottom-0 left-0 right-0 bg-dark-800 rounded-t-2xl max-h-[80vh] overflow-hidden">
+<!-- Exercise Modal -->
+<div id="exercise-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/70" onclick="closeModal()"></div>
+    <div class="absolute bottom-0 left-0 right-0 bg-dark-800 rounded-t-2xl max-h-[85vh] overflow-hidden">
         <div class="p-4 border-b border-dark-600">
             <div class="flex items-center justify-between">
-                <h3 class="font-semibold text-gray-100">Swap Exercise</h3>
-                <button onclick="closeSwapModal()" class="text-gray-500 hover:text-gray-300">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                    </svg>
+                <h3 id="modal-title" class="font-semibold text-gray-100">Select Exercise</h3>
+                <button onclick="closeModal()" class="text-gray-500 hover:text-gray-300">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                 </button>
             </div>
-            <p id="swap-modal-subtitle" class="text-sm text-gray-500 mt-1"></p>
+            <p id="modal-subtitle" class="text-sm text-gray-500 mt-1"></p>
+            <div class="mt-3 flex gap-2">
+                <input type="text" id="exercise-search" placeholder="Search..." oninput="filterExercises()"
+                       class="flex-1 bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-accent">
+                <select id="muscle-filter" onchange="filterExercises()"
+                        class="bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-accent">
+                    <option value="">All</option>
+                    <option value="chest">Chest</option>
+                    <option value="back">Back</option>
+                    <option value="shoulders">Shoulders</option>
+                    <option value="biceps">Biceps</option>
+                    <option value="triceps">Triceps</option>
+                    <option value="quads">Quads</option>
+                    <option value="hamstrings">Hamstrings</option>
+                    <option value="glutes">Glutes</option>
+                    <option value="calves">Calves</option>
+                </select>
+            </div>
         </div>
-        <div id="swap-options" class="p-4 overflow-y-auto max-h-[60vh] space-y-2">
-            <!-- Populated dynamically -->
+        <div id="exercise-options" class="p-4 overflow-y-auto max-h-[45vh] space-y-2"></div>
+        <div class="p-4 border-t border-dark-600">
+            <button onclick="toggleAddForm()" id="add-new-btn" class="w-full py-3 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-accent hover:text-accent transition-colors">+ Add New Exercise</button>
+            <div id="add-form" class="hidden mt-4 space-y-3">
+                <input type="text" id="new-name" placeholder="Exercise name" class="w-full bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
+                <div class="grid grid-cols-2 gap-2">
+                    <select id="new-muscle" class="bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
+                        <option value="">Muscle group</option>
+                        <option value="chest">Chest</option>
+                        <option value="back">Back</option>
+                        <option value="shoulders">Shoulders</option>
+                        <option value="biceps">Biceps</option>
+                        <option value="triceps">Triceps</option>
+                        <option value="quads">Quads</option>
+                        <option value="hamstrings">Hamstrings</option>
+                        <option value="glutes">Glutes</option>
+                        <option value="calves">Calves</option>
+                    </select>
+                    <select id="new-equipment" class="bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
+                        <option value="">Equipment</option>
+                        <option value="barbell">Barbell</option>
+                        <option value="dumbbell">Dumbbell</option>
+                        <option value="cable">Cable</option>
+                        <option value="machine">Machine</option>
+                        <option value="bodyweight">Bodyweight</option>
+                    </select>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="toggleAddForm()" class="flex-1 py-2 border border-dark-600 rounded-lg text-gray-400">Cancel</button>
+                    <button onclick="addNewExercise()" class="flex-1 py-2 bg-accent text-dark-900 rounded-lg font-medium">Add</button>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -195,105 +218,149 @@
 
 {% block scripts %}
 <script>
-    // Cycle configuration state
+    let allExercises = [];
+    const profilePreferredDays = {{ (profile.preferred_days | tojson) if profile and profile.preferred_days else '["monday", "wednesday", "friday"]' | safe }};
+    const dayNameToIndex = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6};
+    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const preferredDayIndices = profilePreferredDays.map(d => dayNameToIndex[d.toLowerCase()]).filter(d => d !== undefined);
+    
     let cycleConfig = {
         name: '',
-        splitType: '{{ profile.split_type if profile else "ppl_3day" }}',
+        splitType: '{{ profile.split_type if profile and profile.split_type else "ppl" }}'.replace('ppl_3day', 'ppl').replace('ppl_6day', 'ppl'),
+        daysPerWeek: {{ profile.days_per_week if profile and profile.days_per_week else 3 }},
         lengthWeeks: {{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }},
         startDate: '{{ next_monday.isoformat() }}',
-        copyPrevious: false,
         schedule: [],
         exercises: {}
     };
     
-    // Default workout structures for each split type
-    const splitStructures = {
-        'ppl_3day': [
-            { name: 'Push (Heavy) + Pull (Light)', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps', 'back', 'biceps'] },
-            { name: 'Legs (Heavy) + Push (Light)', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves', 'chest', 'shoulders'] },
-            { name: 'Pull (Heavy) + Legs (Light)', heavyFocus: ['pull'], muscles: ['back', 'biceps', 'rear_delts', 'hamstrings', 'glutes'] }
-        ],
-        'ppl_6day': [
-            { name: 'Push', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps'] },
-            { name: 'Pull', heavyFocus: ['pull'], muscles: ['back', 'biceps', 'rear_delts'] },
-            { name: 'Legs', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] },
-            { name: 'Push', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps'] },
-            { name: 'Pull', heavyFocus: ['pull'], muscles: ['back', 'biceps', 'rear_delts'] },
-            { name: 'Legs', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] }
-        ],
-        'upper_lower_4day': [
-            { name: 'Upper (Heavy)', heavyFocus: ['upper'], muscles: ['chest', 'back', 'shoulders', 'biceps', 'triceps'] },
-            { name: 'Lower (Heavy)', heavyFocus: ['lower'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] },
-            { name: 'Upper (Light)', heavyFocus: [], muscles: ['chest', 'back', 'shoulders', 'biceps', 'triceps'] },
-            { name: 'Lower (Light)', heavyFocus: [], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] }
-        ],
-        'full_body_3day': [
-            { name: 'Full Body A', heavyFocus: ['compound'], muscles: ['chest', 'back', 'quads', 'shoulders'] },
-            { name: 'Full Body B', heavyFocus: ['compound'], muscles: ['back', 'chest', 'hamstrings', 'biceps', 'triceps'] },
-            { name: 'Full Body C', heavyFocus: ['compound'], muscles: ['quads', 'glutes', 'shoulders', 'back'] }
-        ]
-    };
-    
-    // Default day assignments
-    const defaultDays = {
-        'ppl_3day': [0, 2, 4],      // Mon, Wed, Fri
-        'ppl_6day': [0, 1, 2, 3, 4, 5], // Mon-Sat
-        'upper_lower_4day': [0, 1, 3, 4], // Mon, Tue, Thu, Fri
-        'full_body_3day': [0, 2, 4]  // Mon, Wed, Fri
-    };
-    
-    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    
-    let currentStep = 1;
+    let modalMode = 'swap';
     let swapTarget = null;
+    let addTarget = null;
     
-    // Initialize
-    document.addEventListener('DOMContentLoaded', () => {
+    function getWorkoutStructure() {
+        const split = cycleConfig.splitType;
+        const days = cycleConfig.daysPerWeek;
+        
+        if (split === 'full_body') {
+            return Array.from({length: days}, (_, i) => ({
+                name: `Full Body ${String.fromCharCode(65 + i)}`,
+                heavyFocus: i % 2 === 0 ? ['compound'] : [],
+                muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings']
+            }));
+        } else if (split === 'upper_lower') {
+            return Array.from({length: days}, (_, i) => ({
+                name: i % 2 === 0 ? 'Upper' : 'Lower',
+                heavyFocus: i < 2 ? [i % 2 === 0 ? 'upper' : 'lower'] : [],
+                muscles: i % 2 === 0 ? ['chest', 'back', 'shoulders', 'biceps', 'triceps'] : ['quads', 'hamstrings', 'glutes', 'calves']
+            }));
+        } else if (split === 'custom') {
+            return Array.from({length: days}, (_, i) => ({
+                name: `Day ${i + 1}`,
+                heavyFocus: [],
+                muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'biceps', 'triceps', 'glutes', 'calves']
+            }));
+        } else {
+            if (days <= 3) {
+                return [
+                    { name: 'Push (Heavy) + Pull (Light)', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps', 'back', 'biceps'] },
+                    { name: 'Legs (Heavy) + Push (Light)', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves', 'chest'] },
+                    { name: 'Pull (Heavy) + Legs (Light)', heavyFocus: ['pull'], muscles: ['back', 'biceps', 'hamstrings', 'glutes'] }
+                ].slice(0, days);
+            } else if (days <= 5) {
+                return [
+                    { name: 'Push', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps'] },
+                    { name: 'Pull', heavyFocus: ['pull'], muscles: ['back', 'biceps'] },
+                    { name: 'Legs', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] },
+                    { name: 'Upper', heavyFocus: [], muscles: ['chest', 'back', 'shoulders'] },
+                    { name: 'Lower', heavyFocus: [], muscles: ['quads', 'hamstrings', 'glutes'] }
+                ].slice(0, days);
+            } else {
+                return [
+                    { name: 'Push', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps'] },
+                    { name: 'Pull', heavyFocus: ['pull'], muscles: ['back', 'biceps'] },
+                    { name: 'Legs', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] },
+                    { name: 'Push', heavyFocus: [], muscles: ['chest', 'shoulders', 'triceps'] },
+                    { name: 'Pull', heavyFocus: [], muscles: ['back', 'biceps'] },
+                    { name: 'Legs', heavyFocus: [], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] }
+                ].slice(0, days);
+            }
+        }
+    }
+    
+    function getDefaultDayAssignments(numWorkouts) {
+        if (preferredDayIndices.length >= numWorkouts) return preferredDayIndices.slice(0, numWorkouts);
+        const result = [...preferredDayIndices];
+        for (let d = 0; d < 7 && result.length < numWorkouts; d++) {
+            if (!result.includes(d)) result.push(d);
+        }
+        return result.slice(0, numWorkouts).sort((a, b) => a - b);
+    }
+    
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await fetch('/api/exercises');
+            allExercises = await response.json();
+        } catch (err) { console.error('Failed to load exercises:', err); }
+        
+        document.getElementById('cycle-name').addEventListener('change', e => cycleConfig.name = e.target.value);
+        document.getElementById('start-date').addEventListener('change', e => cycleConfig.startDate = e.target.value);
         updateScheduleGrid();
-        
-        // Event listeners
-        document.getElementById('cycle-name').addEventListener('change', e => {
-            cycleConfig.name = e.target.value;
-        });
-        
-        document.getElementById('split-type').addEventListener('change', e => {
-            cycleConfig.splitType = e.target.value;
-            updateScheduleGrid();
-        });
-        
-        document.getElementById('start-date').addEventListener('change', e => {
-            cycleConfig.startDate = e.target.value;
-        });
-        
-        {% if previous_cycle %}
-        document.getElementById('copy-previous').addEventListener('change', e => {
-            cycleConfig.copyPrevious = e.target.checked;
-        });
-        {% endif %}
     });
+    
+    function selectSplit(split) {
+        cycleConfig.splitType = split;
+        document.querySelectorAll('.split-btn').forEach(btn => {
+            btn.classList.toggle('bg-accent/20', btn.dataset.split === split);
+            btn.classList.toggle('border-accent', btn.dataset.split === split);
+            btn.classList.toggle('text-accent', btn.dataset.split === split);
+            btn.classList.toggle('bg-dark-700', btn.dataset.split !== split);
+            btn.classList.toggle('border-dark-500', btn.dataset.split !== split);
+            btn.classList.toggle('text-gray-400', btn.dataset.split !== split);
+        });
+        updateScheduleGrid();
+    }
+    
+    function selectDaysPerWeek(days) {
+        cycleConfig.daysPerWeek = days;
+        document.querySelectorAll('.days-btn').forEach(btn => {
+            const match = parseInt(btn.dataset.days) === days;
+            btn.classList.toggle('bg-accent', match);
+            btn.classList.toggle('border-accent', match);
+            btn.classList.toggle('text-dark-900', match);
+            btn.classList.toggle('bg-dark-700', !match);
+            btn.classList.toggle('border-dark-500', !match);
+            btn.classList.toggle('text-gray-400', !match);
+        });
+        updateScheduleGrid();
+    }
     
     function selectCycleLength(weeks) {
         cycleConfig.lengthWeeks = weeks;
-        document.querySelectorAll('.cycle-length-btn').forEach(btn => {
-            if (parseInt(btn.dataset.weeks) === weeks) {
-                btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
-                btn.classList.add('bg-accent', 'border-accent', 'text-dark-900');
-            } else {
-                btn.classList.add('bg-dark-700', 'border-dark-500', 'text-gray-400');
-                btn.classList.remove('bg-accent', 'border-accent', 'text-dark-900');
-            }
+        document.querySelectorAll('.length-btn').forEach(btn => {
+            const match = parseInt(btn.dataset.weeks) === weeks;
+            btn.classList.toggle('bg-accent', match);
+            btn.classList.toggle('border-accent', match);
+            btn.classList.toggle('text-dark-900', match);
+            btn.classList.toggle('bg-dark-700', !match);
+            btn.classList.toggle('border-dark-500', !match);
+            btn.classList.toggle('text-gray-400', !match);
         });
     }
     
     function updateScheduleGrid() {
         const grid = document.getElementById('schedule-grid');
-        const structure = splitStructures[cycleConfig.splitType];
-        const defaults = defaultDays[cycleConfig.splitType];
+        const structure = getWorkoutStructure();
+        const defaultDays = getDefaultDayAssignments(structure.length);
         
-        cycleConfig.schedule = defaults.map((day, i) => ({
+        cycleConfig.schedule = structure.map((workout, i) => ({
             workoutIndex: i,
-            dayOfWeek: day
+            dayOfWeek: defaultDays[i],
+            workoutName: workout.name,
+            heavyFocus: workout.heavyFocus,
+            muscles: workout.muscles
         }));
+        cycleConfig.exercises = {};
         
         grid.innerHTML = structure.map((workout, i) => `
             <div class="flex items-center gap-4 p-3 bg-dark-700 rounded-lg">
@@ -301,191 +368,158 @@
                     <p class="font-medium text-gray-100">${workout.name}</p>
                     <p class="text-xs text-gray-500">${workout.muscles.slice(0, 3).join(', ')}</p>
                 </div>
-                <select onchange="updateWorkoutDay(${i}, this.value)"
+                <select onchange="cycleConfig.schedule[${i}].dayOfWeek = parseInt(this.value)"
                         class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
-                    ${dayNames.map((name, d) => `
-                        <option value="${d}" ${defaults[i] === d ? 'selected' : ''}>${name}</option>
-                    `).join('')}
+                    ${dayNames.map((name, d) => `<option value="${d}" ${defaultDays[i] === d ? 'selected' : ''}>${name}</option>`).join('')}
                 </select>
             </div>
         `).join('');
     }
     
-    function updateWorkoutDay(workoutIndex, day) {
-        cycleConfig.schedule[workoutIndex].dayOfWeek = parseInt(day);
-    }
-    
     function goToStep(step) {
-        // Update indicators
         for (let i = 1; i <= 3; i++) {
-            const indicator = document.getElementById(`step-${i}-indicator`);
-            const circle = indicator.querySelector('span:first-child');
-            const text = indicator.querySelector('span:last-child');
-            
-            if (i < step) {
-                circle.classList.remove('bg-dark-600', 'text-gray-500');
-                circle.classList.add('bg-success', 'text-white');
-                text.classList.remove('text-gray-500');
-                text.classList.add('text-gray-300');
-            } else if (i === step) {
-                circle.classList.remove('bg-dark-600', 'text-gray-500', 'bg-success', 'text-white');
-                circle.classList.add('bg-accent', 'text-dark-900');
-                text.classList.remove('text-gray-500');
-                text.classList.add('text-gray-300');
-            } else {
-                circle.classList.remove('bg-accent', 'text-dark-900', 'bg-success', 'text-white');
-                circle.classList.add('bg-dark-600', 'text-gray-500');
-                text.classList.add('text-gray-500');
-                text.classList.remove('text-gray-300');
-            }
+            const ind = document.getElementById(`step-${i}-indicator`);
+            const circle = ind.querySelector('span:first-child');
+            const text = ind.querySelector('span:last-child');
+            circle.className = 'flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold ' + 
+                (i < step ? 'bg-success text-white' : i === step ? 'bg-accent text-dark-900' : 'bg-dark-600 text-gray-500');
+            text.className = 'text-sm ' + (i <= step ? 'text-gray-300' : 'text-gray-500');
         }
-        
-        // Update progress lines
         document.getElementById('progress-line-1').style.width = step > 1 ? '100%' : '0%';
         document.getElementById('progress-line-2').style.width = step > 2 ? '100%' : '0%';
-        
-        // Show/hide steps
-        for (let i = 1; i <= 3; i++) {
-            document.getElementById(`step-${i}`).classList.toggle('hidden', i !== step);
-        }
-        
-        currentStep = step;
-        
-        // Load exercises for step 3
-        if (step === 3) {
-            loadExercisesForReview();
-        }
+        for (let i = 1; i <= 3; i++) document.getElementById(`step-${i}`).classList.toggle('hidden', i !== step);
+        if (step === 3) loadExercisesForReview();
     }
     
-    async function loadExercisesForReview() {
-        const container = document.getElementById('exercises-review');
-        container.innerHTML = '<div class="text-center py-8 text-gray-500">Loading exercises...</div>';
-        
-        try {
-            const response = await fetch('/api/exercises');
-            const allExercises = await response.json();
-            
-            const structure = splitStructures[cycleConfig.splitType];
-            
-            container.innerHTML = structure.map((workout, wIdx) => {
-                // Get exercises for this workout's muscle groups
-                const workoutExercises = getDefaultExercisesForWorkout(workout, allExercises);
-                cycleConfig.exercises[wIdx] = workoutExercises;
-                
-                return `
-                    <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
-                        <div class="px-4 py-3 bg-dark-700 border-b border-dark-600">
-                            <h4 class="font-medium text-gray-100">${workout.name}</h4>
-                        </div>
-                        <div class="p-3 space-y-2">
-                            ${workoutExercises.map((ex, eIdx) => `
-                                <button onclick="openSwapModal(${wIdx}, ${eIdx})"
-                                        class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left"
-                                        data-workout="${wIdx}" data-exercise="${eIdx}">
-                                    <div>
-                                        <p class="text-gray-100 text-sm">${ex.name}</p>
-                                        <p class="text-xs text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
-                                    </div>
-                                    <svg class="w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
-                                    </svg>
-                                </button>
-                            `).join('')}
-                        </div>
-                    </div>
-                `;
-            }).join('');
-        } catch (err) {
-            console.error('Failed to load exercises:', err);
-            container.innerHTML = '<div class="text-center py-8 text-red-400">Failed to load exercises</div>';
-        }
-    }
-    
-    function getDefaultExercisesForWorkout(workout, allExercises) {
-        // Simple algorithm: pick 6-8 exercises covering the muscle groups
+    function getDefaultExercisesForWorkout(workout) {
         const exercises = [];
-        const muscleGroups = workout.muscles;
-        
-        // Prioritize compound exercises first
-        for (const muscle of muscleGroups) {
-            const muscleExercises = allExercises.filter(e => 
-                e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id)
-            );
-            
-            const compound = muscleExercises.find(e => e.is_compound);
-            if (compound && exercises.length < 8) {
-                exercises.push(compound);
-            }
+        for (const muscle of workout.muscles || []) {
+            const muscleExs = allExercises.filter(e => e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id));
+            const compound = muscleExs.find(e => e.is_compound);
+            if (compound && exercises.length < 8) exercises.push({...compound, is_heavy: workout.heavyFocus.length > 0});
         }
-        
-        // Fill with isolation exercises
-        for (const muscle of muscleGroups) {
-            const muscleExercises = allExercises.filter(e => 
-                e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id)
-            );
-            
-            const isolation = muscleExercises.find(e => !e.is_compound);
-            if (isolation && exercises.length < 8) {
-                exercises.push(isolation);
-            }
+        for (const muscle of workout.muscles || []) {
+            const muscleExs = allExercises.filter(e => e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id));
+            const isolation = muscleExs.find(e => !e.is_compound);
+            if (isolation && exercises.length < 8) exercises.push({...isolation, is_heavy: false});
         }
-        
         return exercises.slice(0, 8);
     }
     
-    async function openSwapModal(workoutIdx, exerciseIdx) {
-        const exercise = cycleConfig.exercises[workoutIdx][exerciseIdx];
-        swapTarget = { workoutIdx, exerciseIdx };
+    function loadExercisesForReview() {
+        const container = document.getElementById('exercises-review');
+        const structure = getWorkoutStructure();
         
-        document.getElementById('swap-modal-subtitle').textContent = 
-            `Replace ${exercise.name} (${exercise.muscle_group})`;
+        container.innerHTML = structure.map((workout, wIdx) => {
+            if (!cycleConfig.exercises[wIdx]) cycleConfig.exercises[wIdx] = getDefaultExercisesForWorkout(workout);
+            const exs = cycleConfig.exercises[wIdx];
+            
+            return `
+                <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+                    <div class="px-4 py-3 bg-dark-700 border-b border-dark-600 flex items-center justify-between">
+                        <div>
+                            <h4 class="font-medium text-gray-100">${workout.name}</h4>
+                            <p class="text-xs text-gray-500">${dayNames[cycleConfig.schedule[wIdx].dayOfWeek]}</p>
+                        </div>
+                        <button onclick="openModal('add', ${wIdx})" class="px-3 py-1 text-xs bg-dark-600 text-accent rounded-lg hover:bg-dark-500">+ Add</button>
+                    </div>
+                    <div class="p-3 space-y-2">
+                        ${exs.map((ex, eIdx) => `
+                            <div class="flex items-center gap-2 p-3 bg-dark-700 rounded-lg group">
+                                <button onclick="openModal('swap', ${wIdx}, ${eIdx})" class="flex-1 text-left hover:bg-dark-600 rounded p-1 -m-1">
+                                    <p class="text-gray-100 text-sm">${ex.name}</p>
+                                    <p class="text-xs text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
+                                </button>
+                                <button onclick="removeExercise(${wIdx}, ${eIdx})" class="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    }
+    
+    function openModal(mode, wIdx, eIdx = null) {
+        modalMode = mode;
+        if (mode === 'swap') {
+            swapTarget = { wIdx, eIdx };
+            const ex = cycleConfig.exercises[wIdx][eIdx];
+            document.getElementById('modal-title').textContent = 'Swap Exercise';
+            document.getElementById('modal-subtitle').textContent = `Replace ${ex.name}`;
+            document.getElementById('muscle-filter').value = ex.muscle_group;
+        } else {
+            addTarget = { wIdx };
+            document.getElementById('modal-title').textContent = 'Add Exercise';
+            document.getElementById('modal-subtitle').textContent = '';
+            document.getElementById('muscle-filter').value = '';
+        }
+        document.getElementById('exercise-search').value = '';
+        filterExercises();
+        document.getElementById('exercise-modal').classList.remove('hidden');
+    }
+    
+    function closeModal() {
+        document.getElementById('exercise-modal').classList.add('hidden');
+        document.getElementById('add-form').classList.add('hidden');
+        document.getElementById('add-new-btn').classList.remove('hidden');
+        swapTarget = addTarget = null;
+    }
+    
+    function filterExercises() {
+        const search = document.getElementById('exercise-search').value.toLowerCase();
+        const muscle = document.getElementById('muscle-filter').value;
+        const filtered = allExercises.filter(e => (!search || e.name.toLowerCase().includes(search)) && (!muscle || e.muscle_group === muscle));
         
-        const optionsContainer = document.getElementById('swap-options');
-        optionsContainer.innerHTML = '<div class="text-center py-4 text-gray-500">Loading...</div>';
-        
-        document.getElementById('swap-modal').classList.remove('hidden');
+        document.getElementById('exercise-options').innerHTML = filtered.map(ex => `
+            <button onclick="selectExercise('${ex.id}', \`${ex.name}\`, '${ex.muscle_group}', '${ex.equipment || ''}')"
+                    class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 text-left">
+                <div>
+                    <p class="text-gray-100">${ex.name}</p>
+                    <p class="text-sm text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
+                </div>
+            </button>
+        `).join('') || '<p class="text-center text-gray-500 py-4">No exercises found</p>';
+    }
+    
+    function selectExercise(id, name, muscle, equipment) {
+        const data = { id, name, muscle_group: muscle, equipment, is_heavy: false };
+        if (modalMode === 'swap' && swapTarget) cycleConfig.exercises[swapTarget.wIdx][swapTarget.eIdx] = data;
+        else if (modalMode === 'add' && addTarget) cycleConfig.exercises[addTarget.wIdx].push(data);
+        closeModal();
+        loadExercisesForReview();
+    }
+    
+    function removeExercise(wIdx, eIdx) {
+        if (cycleConfig.exercises[wIdx].length <= 1) { alert('Need at least one exercise'); return; }
+        cycleConfig.exercises[wIdx].splice(eIdx, 1);
+        loadExercisesForReview();
+    }
+    
+    function toggleAddForm() {
+        document.getElementById('add-form').classList.toggle('hidden');
+        document.getElementById('add-new-btn').classList.toggle('hidden');
+    }
+    
+    async function addNewExercise() {
+        const name = document.getElementById('new-name').value.trim();
+        const muscle = document.getElementById('new-muscle').value;
+        const equipment = document.getElementById('new-equipment').value;
+        if (!name || !muscle) { alert('Enter name and muscle group'); return; }
         
         try {
-            const response = await fetch(`/api/exercises/${exercise.muscle_group}/substitutes?current=${exercise.id}&equipment=${exercise.equipment || ''}`);
-            const substitutes = await response.json();
-            
-            optionsContainer.innerHTML = substitutes.map(sub => `
-                <button onclick="swapExercise('${sub.id}', '${sub.name}', '${sub.muscle_group}', '${sub.equipment || ''}')"
-                        class="w-full flex items-center justify-between p-4 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left">
-                    <div>
-                        <p class="text-gray-100">${sub.name}</p>
-                        <p class="text-sm text-gray-500 capitalize">${sub.equipment || 'bodyweight'}</p>
-                    </div>
-                    ${sub.equipment === exercise.equipment ? '<span class="text-xs text-accent">Same equipment</span>' : ''}
-                </button>
-            `).join('') || '<div class="text-center py-4 text-gray-500">No alternatives found</div>';
-        } catch (err) {
-            console.error('Failed to load substitutes:', err);
-            optionsContainer.innerHTML = '<div class="text-center py-4 text-red-400">Failed to load</div>';
-        }
-    }
-    
-    function closeSwapModal() {
-        document.getElementById('swap-modal').classList.add('hidden');
-        swapTarget = null;
-    }
-    
-    function swapExercise(id, name, muscleGroup, equipment) {
-        if (!swapTarget) return;
-        
-        const { workoutIdx, exerciseIdx } = swapTarget;
-        cycleConfig.exercises[workoutIdx][exerciseIdx] = {
-            id, name, muscle_group: muscleGroup, equipment
-        };
-        
-        // Update UI
-        const btn = document.querySelector(`button[data-workout="${workoutIdx}"][data-exercise="${exerciseIdx}"]`);
-        if (btn) {
-            btn.querySelector('p.text-gray-100').textContent = name;
-            btn.querySelector('p.text-xs').textContent = `${muscleGroup} · ${equipment || 'bodyweight'}`;
-        }
-        
-        closeSwapModal();
+            const response = await fetch('/api/exercises/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, muscle_group: muscle, equipment })
+            });
+            if (response.ok) {
+                const newEx = await response.json();
+                allExercises.push(newEx);
+                selectExercise(newEx.id, newEx.name, newEx.muscle_group, newEx.equipment);
+            } else throw new Error('Failed');
+        } catch (err) { alert('Failed to add exercise'); }
     }
     
     async function createCycle() {
@@ -502,26 +536,21 @@
                     split_type: cycleConfig.splitType,
                     length_weeks: cycleConfig.lengthWeeks,
                     start_date: cycleConfig.startDate,
-                    copy_previous: cycleConfig.copyPrevious,
                     schedule: cycleConfig.schedule,
                     exercises: cycleConfig.exercises
                 })
             });
             
             if (response.ok) {
-                const data = await response.json();
-                window.location.href = `/cycle/${data.cycle_id}`;
+                window.location.href = '/plan';
             } else {
-                throw new Error('Failed to create cycle');
+                const data = await response.json();
+                throw new Error(data.error || 'Failed');
             }
         } catch (err) {
-            console.error('Create cycle error:', err);
-            btn.textContent = 'Error - Try Again';
+            alert('Error: ' + err.message);
+            btn.textContent = 'Create Cycle';
             btn.disabled = false;
-            
-            setTimeout(() => {
-                btn.textContent = 'Create Cycle';
-            }, 2000);
         }
     }
 </script>
