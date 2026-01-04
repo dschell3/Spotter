@@ -3,6 +3,16 @@
 {% block title %}Profile{% endblock %}
 
 {% block body %}
+<!-- Toast Notification -->
+<div id="toast" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 transform transition-all duration-300 -translate-y-20 opacity-0">
+    <div class="flex items-center gap-3 px-4 py-3 bg-success rounded-xl shadow-lg">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+        </svg>
+        <span class="text-white font-medium">Settings saved successfully!</span>
+    </div>
+</div>
+
 <div class="min-h-full flex flex-col">
     <!-- Header -->
     <header class="bg-dark-800 border-b border-dark-600 px-4 py-4 safe-area-inset">
@@ -41,15 +51,15 @@
                 <!-- Current Stats -->
                 <div class="grid grid-cols-3 gap-4 pt-4 border-t border-dark-600">
                     <div class="text-center">
-                        <p class="text-2xl font-bold text-accent">{{ profile.days_per_week if profile else 3 }}</p>
+                        <p class="text-2xl font-bold text-accent" id="stat-days">{{ profile.days_per_week if profile and profile.days_per_week else 3 }}</p>
                         <p class="text-xs text-gray-500">Days/Week</p>
                     </div>
                     <div class="text-center">
-                        <p class="text-2xl font-bold text-accent">{{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }}</p>
+                        <p class="text-2xl font-bold text-accent" id="stat-cycle">{{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }}</p>
                         <p class="text-xs text-gray-500">Week Cycle</p>
                     </div>
                     <div class="text-center">
-                        <p class="text-lg font-bold text-accent">{{ (profile.split_type or 'ppl_3day') | replace('_', ' ') | title }}</p>
+                        <p class="text-lg font-bold text-accent capitalize" id="stat-split">{{ (profile.split_type if profile and profile.split_type else 'ppl') | replace('_', ' ') | replace('ppl 3day', 'PPL') | replace('ppl 6day', 'PPL') }}</p>
                         <p class="text-xs text-gray-500">Split</p>
                     </div>
                 </div>
@@ -62,51 +72,77 @@
                 </div>
                 
                 <form id="settings-form" class="p-4 space-y-5">
-                    <!-- Split Type -->
+                    <!-- Split Type - Simplified -->
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Training Split</label>
-                        <select name="split_type" 
-                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
-                            <option value="ppl_3day" {{ 'selected' if (profile and profile.split_type == 'ppl_3day') or not profile else '' }}>PPL × 2 (3 days/week)</option>
-                            <option value="ppl_6day" {{ 'selected' if profile and profile.split_type == 'ppl_6day' else '' }}>PPL (6 days/week)</option>
-                            <option value="upper_lower_4day" {{ 'selected' if profile and profile.split_type == 'upper_lower_4day' else '' }}>Upper/Lower (4 days/week)</option>
-                            <option value="full_body_3day" {{ 'selected' if profile and profile.split_type == 'full_body_3day' else '' }}>Full Body (3 days/week)</option>
-                            <option value="custom" {{ 'selected' if profile and profile.split_type == 'custom' else '' }}>Custom</option>
-                        </select>
+                        <div class="grid grid-cols-2 gap-2">
+                            {% set current_split = profile.split_type if profile and profile.split_type else 'ppl' %}
+                            {% set normalized_split = current_split | replace('ppl_3day', 'ppl') | replace('ppl_6day', 'ppl') %}
+                            {% set splits = [
+                                ('full_body', 'Full Body', 'All muscles each session'),
+                                ('upper_lower', 'Upper / Lower', 'Alternate upper & lower'),
+                                ('ppl', 'Push / Pull / Legs', 'Classic bodybuilding split'),
+                                ('custom', 'Custom', 'Build your own')
+                            ] %}
+                            {% for value, label, desc in splits %}
+                            <button type="button"
+                                    onclick="selectSplit('{{ value }}')"
+                                    class="split-btn p-3 rounded-lg border text-left transition-colors
+                                           {{ 'bg-accent/20 border-accent text-accent' if normalized_split == value else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-split="{{ value }}">
+                                <span class="block font-medium text-sm">{{ label }}</span>
+                                <span class="block text-xs opacity-70 mt-0.5">{{ desc }}</span>
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="split_type" value="{{ normalized_split }}">
                     </div>
                     
                     <!-- Days Per Week -->
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Training Days Per Week</label>
                         <div class="grid grid-cols-5 gap-2">
+                            {% set current_days = profile.days_per_week if profile and profile.days_per_week else 3 %}
                             {% for day in [2, 3, 4, 5, 6] %}
                             <button type="button" 
                                     onclick="selectDaysPerWeek({{ day }})"
                                     class="days-btn py-3 rounded-lg border text-center font-mono transition-colors
-                                           {{ 'bg-accent border-accent text-dark-900' if (profile and profile.days_per_week == day) or (not profile and day == 3) else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                           {{ 'bg-accent border-accent text-dark-900' if current_days == day else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
                                     data-days="{{ day }}">
                                 {{ day }}
                             </button>
                             {% endfor %}
                         </div>
-                        <input type="hidden" name="days_per_week" value="{{ profile.days_per_week if profile else 3 }}">
+                        <input type="hidden" name="days_per_week" value="{{ current_days }}">
+                    </div>
+                    
+                    <!-- Schedule Preview -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Generated Schedule Preview</label>
+                        <div id="schedule-preview" class="bg-dark-700 rounded-lg p-4 min-h-[120px]">
+                            <div class="text-center text-gray-500 py-4">
+                                <div class="animate-pulse">Loading preview...</div>
+                            </div>
+                        </div>
+                        <p id="schedule-summary" class="text-xs text-gray-500 mt-2"></p>
                     </div>
                     
                     <!-- Cycle Length -->
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Cycle Length</label>
                         <div class="grid grid-cols-3 gap-2">
+                            {% set current_cycle_length = profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 %}
                             {% for weeks in [4, 6, 8] %}
                             <button type="button"
                                     onclick="selectCycleLength({{ weeks }})"
                                     class="cycle-btn py-3 rounded-lg border text-center transition-colors
-                                           {{ 'bg-accent border-accent text-dark-900' if (profile and profile.cycle_length_weeks == weeks) or (not profile and weeks == 6) else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                           {{ 'bg-accent border-accent text-dark-900' if current_cycle_length == weeks else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
                                     data-weeks="{{ weeks }}">
                                 {{ weeks }} weeks
                             </button>
                             {% endfor %}
                         </div>
-                        <input type="hidden" name="cycle_length_weeks" value="{{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }}">
+                        <input type="hidden" name="cycle_length_weeks" value="{{ current_cycle_length }}">
                     </div>
                     
                     <!-- Preferred Training Days -->
@@ -126,7 +162,8 @@
                             </button>
                             {% endfor %}
                         </div>
-                        <input type="hidden" name="preferred_days" value="{{ preferred | tojson }}">
+                        <p class="text-xs text-gray-500 mt-1">Select which days you prefer to train</p>
+                        <input type="hidden" name="preferred_days" id="preferred_days_input">
                     </div>
                     
                     <!-- Save Button -->
@@ -203,8 +240,67 @@
 
 {% block scripts %}
 <script>
+    // Current settings state
+    let currentSplit = document.querySelector('input[name="split_type"]').value;
+    let currentDays = parseInt(document.querySelector('input[name="days_per_week"]').value);
+    let currentCycleLength = parseInt(document.querySelector('input[name="cycle_length_weeks"]').value);
+    
+    // Toast notification
+    function showToast(message, isError = false) {
+        const toast = document.getElementById('toast');
+        const toastContent = toast.querySelector('div');
+        const toastText = toast.querySelector('span');
+        const toastIcon = toast.querySelector('svg');
+        
+        toastText.textContent = message;
+        
+        if (isError) {
+            toastContent.classList.remove('bg-success');
+            toastContent.classList.add('bg-red-500');
+            toastIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>';
+        } else {
+            toastContent.classList.remove('bg-red-500');
+            toastContent.classList.add('bg-success');
+            toastIcon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>';
+        }
+        
+        toast.classList.remove('-translate-y-20', 'opacity-0');
+        toast.classList.add('translate-y-0', 'opacity-100');
+        
+        setTimeout(() => {
+            toast.classList.add('-translate-y-20', 'opacity-0');
+            toast.classList.remove('translate-y-0', 'opacity-100');
+        }, 3000);
+    }
+    
+    // Initialize preferred days from the buttons that are active
+    let preferredDays = [];
+    document.querySelectorAll('.pref-day-btn').forEach(btn => {
+        if (btn.classList.contains('bg-accent')) {
+            preferredDays.push(btn.dataset.day);
+        }
+    });
+    document.getElementById('preferred_days_input').value = JSON.stringify(preferredDays);
+    
+    // Split selection
+    function selectSplit(split) {
+        currentSplit = split;
+        document.querySelectorAll('.split-btn').forEach(btn => {
+            if (btn.dataset.split === split) {
+                btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
+                btn.classList.add('bg-accent/20', 'border-accent', 'text-accent');
+            } else {
+                btn.classList.add('bg-dark-700', 'border-dark-500', 'text-gray-400');
+                btn.classList.remove('bg-accent/20', 'border-accent', 'text-accent');
+            }
+        });
+        document.querySelector('input[name="split_type"]').value = split;
+        updateSchedulePreview();
+    }
+    
     // Days per week selection
     function selectDaysPerWeek(days) {
+        currentDays = days;
         document.querySelectorAll('.days-btn').forEach(btn => {
             if (parseInt(btn.dataset.days) === days) {
                 btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
@@ -215,10 +311,12 @@
             }
         });
         document.querySelector('input[name="days_per_week"]').value = days;
+        updateSchedulePreview();
     }
     
     // Cycle length selection
     function selectCycleLength(weeks) {
+        currentCycleLength = weeks;
         document.querySelectorAll('.cycle-btn').forEach(btn => {
             if (parseInt(btn.dataset.weeks) === weeks) {
                 btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
@@ -233,21 +331,93 @@
     
     // Preferred days toggle
     function togglePreferredDay(day) {
-        const input = document.querySelector('input[name="preferred_days"]');
-        let days = JSON.parse(input.value);
         const btn = document.querySelector(`.pref-day-btn[data-day="${day}"]`);
         
-        if (days.includes(day)) {
-            days = days.filter(d => d !== day);
+        if (preferredDays.includes(day)) {
+            preferredDays = preferredDays.filter(d => d !== day);
             btn.classList.add('bg-dark-700', 'border-dark-500', 'text-gray-400');
             btn.classList.remove('bg-accent', 'border-accent', 'text-dark-900');
         } else {
-            days.push(day);
+            preferredDays.push(day);
             btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
             btn.classList.add('bg-accent', 'border-accent', 'text-dark-900');
         }
         
-        input.value = JSON.stringify(days);
+        document.getElementById('preferred_days_input').value = JSON.stringify(preferredDays);
+    }
+    
+    // Update schedule preview
+    async function updateSchedulePreview() {
+        const previewContainer = document.getElementById('schedule-preview');
+        const summaryEl = document.getElementById('schedule-summary');
+        
+        previewContainer.innerHTML = '<div class="text-center text-gray-500 py-4"><div class="animate-pulse">Loading preview...</div></div>';
+        
+        try {
+            const response = await fetch(`/api/schedule/preview?split=${currentSplit}&days=${currentDays}`);
+            const data = await response.json();
+            
+            if (data.error) {
+                throw new Error(data.error);
+            }
+            
+            // Render preview
+            let html = '';
+            
+            if (data.rotation_weeks > 1) {
+                html += `<div class="text-xs text-accent mb-3 font-medium">${data.rotation_weeks}-Week Rotation</div>`;
+            }
+            
+            data.weeks.forEach((week, weekIdx) => {
+                if (data.rotation_weeks > 1) {
+                    html += `<div class="text-xs text-gray-500 mb-2 ${weekIdx > 0 ? 'mt-3' : ''}">Week ${week.week_number}:</div>`;
+                }
+                
+                // Determine grid layout based on number of days
+                const numDays = week.days.length;
+                let gridClass = 'grid gap-2 ';
+                // Tailwind needs explicit class names - can't use template literals
+                if (numDays === 2) gridClass += 'grid-cols-2';
+                else if (numDays === 3) gridClass += 'grid-cols-3';
+                else if (numDays === 4) gridClass += 'grid-cols-4';
+                else if (numDays === 5) gridClass += 'grid-cols-5';
+                else if (numDays === 6) gridClass += 'grid-cols-3'; // 2 rows of 3
+                else gridClass += 'grid-cols-3'; // fallback
+                
+                html += `<div class="${gridClass}">`;
+                week.days.forEach(day => {
+                    html += `<div class="p-2 bg-dark-600 rounded-lg">
+                        <div class="text-xs text-gray-500 mb-1">Day ${day.day_number}</div>
+                        <div class="space-y-1">`;
+                    
+                    day.focuses.forEach((focus) => {
+                        let colorClass = 'bg-gray-500/20 text-gray-400';
+                        if (focus.name === 'Push') colorClass = 'bg-red-500/20 text-red-400';
+                        else if (focus.name === 'Pull') colorClass = 'bg-blue-500/20 text-blue-400';
+                        else if (focus.name === 'Legs') colorClass = 'bg-green-500/20 text-green-400';
+                        else if (focus.name === 'Upper') colorClass = 'bg-purple-500/20 text-purple-400';
+                        else if (focus.name === 'Lower') colorClass = 'bg-orange-500/20 text-orange-400';
+                        else if (focus.name === 'Full Body') colorClass = 'bg-accent/20 text-accent';
+                        
+                        const heavyLabel = focus.is_heavy ? 'H' : 'L';
+                        html += `<div class="text-xs px-2 py-1 rounded ${colorClass}">
+                            ${focus.name} <span class="opacity-60">(${heavyLabel})</span>
+                        </div>`;
+                    });
+                    
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            });
+            
+            previewContainer.innerHTML = html;
+            summaryEl.textContent = data.summary;
+            
+        } catch (err) {
+            console.error('Preview error:', err);
+            previewContainer.innerHTML = '<div class="text-center text-red-400 py-4">Failed to load preview</div>';
+            summaryEl.textContent = '';
+        }
     }
     
     // Form submission
@@ -262,23 +432,37 @@
         submitBtn.textContent = 'Saving...';
         
         try {
+            const payload = {
+                split_type: currentSplit,
+                days_per_week: currentDays,
+                cycle_length_weeks: currentCycleLength,
+                preferred_days: preferredDays
+            };
+            
+            console.log('Sending payload:', payload);
+            
             const response = await fetch('/api/profile/settings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
                 },
-                body: JSON.stringify({
-                    split_type: form.split_type.value,
-                    days_per_week: parseInt(form.days_per_week.value),
-                    cycle_length_weeks: parseInt(form.cycle_length_weeks.value),
-                    preferred_days: JSON.parse(form.preferred_days.value)
-                })
+                body: JSON.stringify(payload)
             });
             
+            const data = await response.json();
+            console.log('Response:', data);
+            
             if (response.ok) {
+                showToast('Settings saved successfully!');
+                
                 submitBtn.textContent = 'Saved!';
                 submitBtn.classList.remove('bg-accent');
                 submitBtn.classList.add('bg-success');
+                
+                // Update the stats display
+                document.getElementById('stat-days').textContent = currentDays;
+                document.getElementById('stat-cycle').textContent = currentCycleLength;
+                document.getElementById('stat-split').textContent = currentSplit.replace('_', ' ').toUpperCase();
                 
                 setTimeout(() => {
                     submitBtn.textContent = originalText;
@@ -287,10 +471,13 @@
                     submitBtn.disabled = false;
                 }, 1500);
             } else {
-                throw new Error('Failed to save');
+                throw new Error(data.error || 'Failed to save');
             }
         } catch (err) {
             console.error('Save error:', err);
+            
+            showToast('Failed to save settings', true);
+            
             submitBtn.textContent = 'Error - Try Again';
             submitBtn.classList.remove('bg-accent');
             submitBtn.classList.add('bg-red-500');
@@ -302,6 +489,11 @@
                 submitBtn.disabled = false;
             }, 2000);
         }
+    });
+    
+    // Load initial preview
+    document.addEventListener('DOMContentLoaded', () => {
+        updateSchedulePreview();
     });
 </script>
 {% endblock %}

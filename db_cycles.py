@@ -489,28 +489,67 @@ def get_exercise_substitutions(exercise_id: str, muscle_group: str,
 def update_profile_training_settings(user_id: str, split_type: str = None,
                                      days_per_week: int = None,
                                      cycle_length_weeks: int = None,
-                                     preferred_days: list = None):
-    """Update user's training preferences."""
+                                     preferred_days: list = None,
+                                     email: str = None):
+    """Update user's training preferences. Creates profile if it doesn't exist."""
     supabase = get_supabase_client()
     
     updates = {}
-    if split_type:
+    if split_type is not None:
         updates['split_type'] = split_type
-    if days_per_week:
+    if days_per_week is not None:
         updates['days_per_week'] = days_per_week
-    if cycle_length_weeks:
+    if cycle_length_weeks is not None:
         updates['cycle_length_weeks'] = cycle_length_weeks
-    if preferred_days:
+    if preferred_days is not None:
+        # Supabase Python client handles list -> JSONB conversion automatically
         updates['preferred_days'] = preferred_days
     
-    if updates:
-        response = supabase.table('profiles')\
-            .update(updates)\
+    if not updates:
+        return {'message': 'No updates provided'}
+    
+    print(f"Updating profile {user_id} with: {updates}")
+    
+    try:
+        # First check if profile exists
+        check_response = supabase.table('profiles')\
+            .select('id')\
             .eq('id', user_id)\
             .execute()
-        return response.data[0] if response.data else None
-    
-    return None
+        
+        if not check_response.data:
+            # Profile doesn't exist - create it with the updates
+            print(f"Profile doesn't exist, creating new profile for {user_id}")
+            create_data = {
+                'id': user_id,
+                'email': email,
+                'display_name': email.split('@')[0] if email else 'User',
+                **updates
+            }
+            response = supabase.table('profiles').insert(create_data).execute()
+        else:
+            # Profile exists - update it
+            response = supabase.table('profiles')\
+                .update(updates)\
+                .eq('id', user_id)\
+                .execute()
+        
+        print(f"Profile operation response: {response}")
+        
+        if response.data:
+            return response.data[0]
+        else:
+            # Fetch the profile to return it
+            fetch_response = supabase.table('profiles')\
+                .select('*')\
+                .eq('id', user_id)\
+                .single()\
+                .execute()
+            return fetch_response.data if fetch_response.data else {'updated': True}
+            
+    except Exception as e:
+        print(f"Database error in update_profile_training_settings: {e}")
+        raise e
 
 
 # ============================================

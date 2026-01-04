@@ -4,6 +4,7 @@ from config import Config
 from datetime import date, datetime, timedelta
 import db
 import db_cycles
+import workout_generator
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -163,6 +164,23 @@ def index():
     """Landing page - shows workout selection."""
     user = get_current_user()
     
+    # Split type display names and descriptions
+    SPLIT_DISPLAY_NAMES = {
+        'ppl_3day': 'PPL×2 (3 Day)',
+        'ppl_6day': 'PPL (6 Day)',
+        'upper_lower_4day': 'Upper/Lower (4 Day)',
+        'full_body_3day': 'Full Body (3 Day)',
+        'custom': 'Custom'
+    }
+    
+    SPLIT_DESCRIPTIONS = {
+        'ppl_3day': 'Push/Pull/Legs hit twice per week in 3 training days',
+        'ppl_6day': 'Push/Pull/Legs split across 6 training days',
+        'upper_lower_4day': 'Upper and Lower body across 4 training days',
+        'full_body_3day': 'Full body workouts 3 days per week',
+        'custom': 'Custom training split'
+    }
+    
     try:
         routine = db.get_routine('ppl_3day')
     except Exception as e:
@@ -171,15 +189,34 @@ def index():
         from data.routines import get_routine as get_local_routine
         routine = get_local_routine('ppl_3day')
     
-    # Get active cycle if user is logged in
+    # Get active cycle and profile if user is logged in
     active_cycle = None
+    profile = None
+    split_display_name = SPLIT_DISPLAY_NAMES.get('ppl_3day')
+    split_description = SPLIT_DESCRIPTIONS.get('ppl_3day')
+    
     if user:
         try:
             active_cycle = db_cycles.get_active_cycle(user['id'])
         except Exception as e:
             print(f"Error fetching active cycle: {e}")
+        
+        try:
+            profile = db.get_user_profile(user['id'])
+            if profile and profile.get('split_type'):
+                split_type = profile.get('split_type')
+                split_display_name = SPLIT_DISPLAY_NAMES.get(split_type, split_type.replace('_', ' ').title())
+                split_description = SPLIT_DESCRIPTIONS.get(split_type, f"{profile.get('days_per_week', 3)} days per week training")
+        except Exception as e:
+            print(f"Error fetching profile: {e}")
     
-    return render_template('index.html', routine=routine, user=user, active_cycle=active_cycle)
+    return render_template('index.html', 
+                         routine=routine, 
+                         user=user, 
+                         active_cycle=active_cycle,
+                         profile=profile,
+                         split_display_name=split_display_name,
+                         split_description=split_description)
 
 
 @app.route('/workout/<day_id>')
@@ -258,21 +295,89 @@ def plan():
     user = get_current_user()
     
     # Get active cycle
-    active_cycle = db_cycles.get_active_cycle(user['id'])
+    cycle = db_cycles.get_active_cycle(user['id'])
     
-    # Get current week's scheduled workouts
+    # Get today's date
     today = date.today()
-    week_start = today - timedelta(days=today.weekday())  # Monday
     
+    # Determine which week to show
+    requested_week = request.args.get('week', type=int)
+    
+    if cycle:
+        # Calculate current week based on cycle start date
+        cycle_start = datetime.strptime(cycle['start_date'], '%Y-%m-%d').date()
+        days_since_start = (today - cycle_start).days
+        actual_current_week = max(1, min(cycle.get('length_weeks', 6), (days_since_start // 7) + 1))
+        
+        # Use requested week or default to actual current week
+        if requested_week:
+            current_week = max(1, min(cycle.get('length_weeks', 6), requested_week))
+        else:
+            current_week = actual_current_week
+        
+        # Calculate week_start for the requested week
+        week_start = cycle_start + timedelta(weeks=current_week - 1)
+        
+        # Determine if viewing the actual current week
+        is_current_week = (current_week == actual_current_week)
+    else:
+        # No cycle - just show current calendar week
+        current_week = 1
+        week_start = today - timedelta(days=today.weekday())  # Monday of current week
+        is_current_week = True
+    
+    # Calculate week_end (Sunday)
+    week_end = week_start + timedelta(days=6)
+    
+    # Generate week_dates (list of 7 dates, Mon-Sun)
+    week_dates = [week_start + timedelta(days=i) for i in range(7)]
+    
+    # Get scheduled workouts for this week
     scheduled_workouts = []
-    if active_cycle:
+    if cycle:
         scheduled_workouts = db_cycles.get_scheduled_workouts_for_week(user['id'], week_start)
+    
+    # Organize workouts by day of week (0=Monday, 6=Sunday)
+    scheduled_by_day = {}
+    for workout in scheduled_workouts:
+        workout_date = datetime.strptime(workout['scheduled_date'], '%Y-%m-%d').date()
+        day_index = workout_date.weekday()
+        if day_index not in scheduled_by_day:
+            scheduled_by_day[day_index] = []
+        scheduled_by_day[day_index].append(workout)
+    
+    # Calculate week stats
+    total_scheduled = len(scheduled_workouts)
+    completed = sum(1 for w in scheduled_workouts if w.get('status') == 'completed')
+    scheduled_remaining = sum(1 for w in scheduled_workouts if w.get('status') == 'scheduled')
+    
+    week_stats = {
+        'total': total_scheduled,
+        'completed': completed,
+        'scheduled': scheduled_remaining,
+        'completion_rate': round((completed / total_scheduled * 100) if total_scheduled > 0 else 0)
+    }
+    
+    # Find next workout (first scheduled workout from today forward)
+    next_workout = None
+    for workout in sorted(scheduled_workouts, key=lambda w: w['scheduled_date']):
+        workout_date = datetime.strptime(workout['scheduled_date'], '%Y-%m-%d').date()
+        if workout.get('status') == 'scheduled' and workout_date >= today:
+            next_workout = workout
+            break
     
     return render_template('plan.html', 
                          user=user, 
-                         active_cycle=active_cycle,
-                         scheduled_workouts=scheduled_workouts,
-                         week_start=week_start)
+                         cycle=cycle,
+                         current_week=current_week,
+                         week_start=week_start,
+                         week_end=week_end,
+                         week_dates=week_dates,
+                         scheduled_by_day=scheduled_by_day,
+                         today=today,
+                         is_current_week=is_current_week,
+                         week_stats=week_stats,
+                         next_workout=next_workout)
 
 
 @app.route('/cycle/new')
@@ -292,11 +397,20 @@ def cycle_new():
         from data.routines import EXERCISES
         exercises = list(EXERCISES.values())
     
+    # Calculate next Monday for default start date
+    today = date.today()
+    days_until_monday = (7 - today.weekday()) % 7
+    if days_until_monday == 0:
+        days_until_monday = 7  # If today is Monday, use next Monday
+    next_monday = today + timedelta(days=days_until_monday)
+    
     return render_template('cycle_new.html', 
                          user=user, 
                          profile=profile,
                          previous_cycle=previous_cycle,
-                         exercises=exercises)
+                         exercises=exercises,
+                         today=today,
+                         next_monday=next_monday)
 
 
 @app.route('/cycle/<cycle_id>')
@@ -372,6 +486,19 @@ def cycle_view(cycle_id):
                          current_week=current_week,
                          end_date=end_date,
                          progress_by_week=progress_by_week)
+
+
+@app.route('/workout/schedule/<scheduled_id>')
+@login_required
+def workout_from_schedule(scheduled_id):
+    """Start a workout from the scheduled calendar."""
+    user = get_current_user()
+    
+    # For now, redirect to the standard workout view
+    # In a full implementation, this would load the cycle-specific workout
+    # with the correct exercises and weight suggestions
+    flash('Starting scheduled workout...', 'info')
+    return redirect(url_for('workout', day_id='1'))
 
 
 # ============================================
@@ -532,6 +659,28 @@ def api_routine(routine_id):
         return jsonify({'error': 'Routine not found'}), 404
 
 
+@app.route('/api/schedule/preview')
+def api_schedule_preview():
+    """Generate and return a schedule preview based on split type and days per week."""
+    split_type = request.args.get('split', 'ppl')
+    days_per_week = request.args.get('days', 3, type=int)
+    
+    # Validate inputs
+    if days_per_week < 2 or days_per_week > 6:
+        return jsonify({'error': 'Days per week must be between 2 and 6'}), 400
+    
+    valid_splits = ['full_body', 'upper_lower', 'ppl', 'custom']
+    if split_type not in valid_splits:
+        return jsonify({'error': f'Invalid split type. Must be one of: {valid_splits}'}), 400
+    
+    try:
+        schedule = workout_generator.generate_schedule_dict(split_type, days_per_week)
+        return jsonify(schedule)
+    except Exception as e:
+        print(f"Schedule preview error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 # ============================================
 # PROFILE API
 # ============================================
@@ -544,23 +693,29 @@ def api_profile_settings():
         return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
+    print(f"Profile settings update request: {data}")
     
     try:
         result = db_cycles.update_profile_training_settings(
             user_id=user['id'],
+            email=user.get('email'),  # Pass email for profile creation
             split_type=data.get('split_type'),
             days_per_week=data.get('days_per_week'),
             cycle_length_weeks=data.get('cycle_length_weeks'),
             preferred_days=data.get('preferred_days')
         )
         
+        print(f"Profile update result: {result}")
+        
         if result:
             return jsonify({'success': True, 'profile': result})
-        return jsonify({'error': 'Failed to update settings'}), 500
+        return jsonify({'error': 'Failed to update settings - no result returned'}), 500
         
     except Exception as e:
+        import traceback
         print(f"Profile update error: {e}")
-        return jsonify({'error': str(e)}), 500
+        print(f"Traceback: {traceback.format_exc()}")
+        return jsonify({'error': str(e), 'details': traceback.format_exc()}), 500
 
 
 # ============================================
