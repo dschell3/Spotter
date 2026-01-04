@@ -38,21 +38,121 @@
                     </div>
                 </div>
                 
-                <!-- Stats -->
-                <div class="grid grid-cols-2 gap-4 pt-4 border-t border-dark-600">
+                <!-- Current Stats -->
+                <div class="grid grid-cols-3 gap-4 pt-4 border-t border-dark-600">
                     <div class="text-center">
                         <p class="text-2xl font-bold text-accent">{{ profile.days_per_week if profile else 3 }}</p>
-                        <p class="text-sm text-gray-500">Days/Week</p>
+                        <p class="text-xs text-gray-500">Days/Week</p>
                     </div>
                     <div class="text-center">
-                        <p class="text-2xl font-bold text-accent">{{ profile.split_type | upper if profile and profile.split_type else 'PPL' }}</p>
-                        <p class="text-sm text-gray-500">Split Type</p>
+                        <p class="text-2xl font-bold text-accent">{{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }}</p>
+                        <p class="text-xs text-gray-500">Week Cycle</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-lg font-bold text-accent">{{ (profile.split_type or 'ppl_3day') | replace('_', ' ') | title }}</p>
+                        <p class="text-xs text-gray-500">Split</p>
                     </div>
                 </div>
             </div>
             
+            <!-- Training Settings -->
+            <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+                <div class="px-4 py-3 border-b border-dark-600">
+                    <h3 class="font-medium text-gray-100">Training Settings</h3>
+                </div>
+                
+                <form id="settings-form" class="p-4 space-y-5">
+                    <!-- Split Type -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Training Split</label>
+                        <select name="split_type" 
+                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
+                            <option value="ppl_3day" {{ 'selected' if (profile and profile.split_type == 'ppl_3day') or not profile else '' }}>PPL × 2 (3 days/week)</option>
+                            <option value="ppl_6day" {{ 'selected' if profile and profile.split_type == 'ppl_6day' else '' }}>PPL (6 days/week)</option>
+                            <option value="upper_lower_4day" {{ 'selected' if profile and profile.split_type == 'upper_lower_4day' else '' }}>Upper/Lower (4 days/week)</option>
+                            <option value="full_body_3day" {{ 'selected' if profile and profile.split_type == 'full_body_3day' else '' }}>Full Body (3 days/week)</option>
+                            <option value="custom" {{ 'selected' if profile and profile.split_type == 'custom' else '' }}>Custom</option>
+                        </select>
+                    </div>
+                    
+                    <!-- Days Per Week -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Training Days Per Week</label>
+                        <div class="grid grid-cols-5 gap-2">
+                            {% for day in [2, 3, 4, 5, 6] %}
+                            <button type="button" 
+                                    onclick="selectDaysPerWeek({{ day }})"
+                                    class="days-btn py-3 rounded-lg border text-center font-mono transition-colors
+                                           {{ 'bg-accent border-accent text-dark-900' if (profile and profile.days_per_week == day) or (not profile and day == 3) else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-days="{{ day }}">
+                                {{ day }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="days_per_week" value="{{ profile.days_per_week if profile else 3 }}">
+                    </div>
+                    
+                    <!-- Cycle Length -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Cycle Length</label>
+                        <div class="grid grid-cols-3 gap-2">
+                            {% for weeks in [4, 6, 8] %}
+                            <button type="button"
+                                    onclick="selectCycleLength({{ weeks }})"
+                                    class="cycle-btn py-3 rounded-lg border text-center transition-colors
+                                           {{ 'bg-accent border-accent text-dark-900' if (profile and profile.cycle_length_weeks == weeks) or (not profile and weeks == 6) else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-weeks="{{ weeks }}">
+                                {{ weeks }} weeks
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="cycle_length_weeks" value="{{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }}">
+                    </div>
+                    
+                    <!-- Preferred Training Days -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-2">Preferred Training Days</label>
+                        <div class="grid grid-cols-7 gap-1">
+                            {% set days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
+                            {% set day_values = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] %}
+                            {% set preferred = profile.preferred_days if profile and profile.preferred_days else ['monday', 'wednesday', 'friday'] %}
+                            {% for i in range(7) %}
+                            <button type="button"
+                                    onclick="togglePreferredDay('{{ day_values[i] }}')"
+                                    class="pref-day-btn py-2 rounded-lg border text-xs text-center transition-colors
+                                           {{ 'bg-accent border-accent text-dark-900' if day_values[i] in preferred else 'bg-dark-700 border-dark-500 text-gray-400 hover:border-gray-500' }}"
+                                    data-day="{{ day_values[i] }}">
+                                {{ days[i] }}
+                            </button>
+                            {% endfor %}
+                        </div>
+                        <input type="hidden" name="preferred_days" value="{{ preferred | tojson }}">
+                    </div>
+                    
+                    <!-- Save Button -->
+                    <button type="submit" 
+                            class="w-full py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">
+                        Save Settings
+                    </button>
+                </form>
+            </div>
+            
             <!-- Quick Links -->
             <div class="space-y-2">
+                <a href="{{ url_for('plan') }}" class="flex items-center justify-between w-full bg-dark-800 border border-dark-600 rounded-xl p-4 hover:bg-dark-700 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                            </svg>
+                        </div>
+                        <span class="text-gray-100">Weekly Plan</span>
+                    </div>
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+                
                 <a href="{{ url_for('history') }}" class="flex items-center justify-between w-full bg-dark-800 border border-dark-600 rounded-xl p-4 hover:bg-dark-700 transition-colors">
                     <div class="flex items-center gap-3">
                         <div class="w-10 h-10 rounded-lg bg-dark-600 flex items-center justify-center text-gray-400">
@@ -66,6 +166,25 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                     </svg>
                 </a>
+                
+                {% if active_cycle %}
+                <a href="{{ url_for('cycle_view', cycle_id=active_cycle.id) }}" class="flex items-center justify-between w-full bg-dark-800 border border-dark-600 rounded-xl p-4 hover:bg-dark-700 transition-colors">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 rounded-lg bg-success/20 flex items-center justify-center text-success">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <span class="text-gray-100">Current Cycle</span>
+                            <p class="text-xs text-gray-500">{{ active_cycle.name or 'Active' }}</p>
+                        </div>
+                    </div>
+                    <svg class="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </a>
+                {% endif %}
             </div>
             
             <!-- Logout -->
@@ -80,4 +199,109 @@
         </div>
     </main>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Days per week selection
+    function selectDaysPerWeek(days) {
+        document.querySelectorAll('.days-btn').forEach(btn => {
+            if (parseInt(btn.dataset.days) === days) {
+                btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
+                btn.classList.add('bg-accent', 'border-accent', 'text-dark-900');
+            } else {
+                btn.classList.add('bg-dark-700', 'border-dark-500', 'text-gray-400');
+                btn.classList.remove('bg-accent', 'border-accent', 'text-dark-900');
+            }
+        });
+        document.querySelector('input[name="days_per_week"]').value = days;
+    }
+    
+    // Cycle length selection
+    function selectCycleLength(weeks) {
+        document.querySelectorAll('.cycle-btn').forEach(btn => {
+            if (parseInt(btn.dataset.weeks) === weeks) {
+                btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
+                btn.classList.add('bg-accent', 'border-accent', 'text-dark-900');
+            } else {
+                btn.classList.add('bg-dark-700', 'border-dark-500', 'text-gray-400');
+                btn.classList.remove('bg-accent', 'border-accent', 'text-dark-900');
+            }
+        });
+        document.querySelector('input[name="cycle_length_weeks"]').value = weeks;
+    }
+    
+    // Preferred days toggle
+    function togglePreferredDay(day) {
+        const input = document.querySelector('input[name="preferred_days"]');
+        let days = JSON.parse(input.value);
+        const btn = document.querySelector(`.pref-day-btn[data-day="${day}"]`);
+        
+        if (days.includes(day)) {
+            days = days.filter(d => d !== day);
+            btn.classList.add('bg-dark-700', 'border-dark-500', 'text-gray-400');
+            btn.classList.remove('bg-accent', 'border-accent', 'text-dark-900');
+        } else {
+            days.push(day);
+            btn.classList.remove('bg-dark-700', 'border-dark-500', 'text-gray-400');
+            btn.classList.add('bg-accent', 'border-accent', 'text-dark-900');
+        }
+        
+        input.value = JSON.stringify(days);
+    }
+    
+    // Form submission
+    document.getElementById('settings-form').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const form = e.target;
+        const submitBtn = form.querySelector('button[type="submit"]');
+        const originalText = submitBtn.textContent;
+        
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Saving...';
+        
+        try {
+            const response = await fetch('/api/profile/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    split_type: form.split_type.value,
+                    days_per_week: parseInt(form.days_per_week.value),
+                    cycle_length_weeks: parseInt(form.cycle_length_weeks.value),
+                    preferred_days: JSON.parse(form.preferred_days.value)
+                })
+            });
+            
+            if (response.ok) {
+                submitBtn.textContent = 'Saved!';
+                submitBtn.classList.remove('bg-accent');
+                submitBtn.classList.add('bg-success');
+                
+                setTimeout(() => {
+                    submitBtn.textContent = originalText;
+                    submitBtn.classList.add('bg-accent');
+                    submitBtn.classList.remove('bg-success');
+                    submitBtn.disabled = false;
+                }, 1500);
+            } else {
+                throw new Error('Failed to save');
+            }
+        } catch (err) {
+            console.error('Save error:', err);
+            submitBtn.textContent = 'Error - Try Again';
+            submitBtn.classList.remove('bg-accent');
+            submitBtn.classList.add('bg-red-500');
+            
+            setTimeout(() => {
+                submitBtn.textContent = originalText;
+                submitBtn.classList.add('bg-accent');
+                submitBtn.classList.remove('bg-red-500');
+                submitBtn.disabled = false;
+            }, 2000);
+        }
+    });
+</script>
 {% endblock %}

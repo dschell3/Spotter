@@ -1,0 +1,362 @@
+{% extends "base.html" %}
+
+{% block title %}Weekly Plan{% endblock %}
+
+{% block head %}
+<style>
+    .week-scroll {
+        scroll-snap-type: x mandatory;
+        -webkit-overflow-scrolling: touch;
+    }
+    .day-card {
+        scroll-snap-align: start;
+        min-width: 140px;
+    }
+    @media (min-width: 768px) {
+        .day-card {
+            min-width: auto;
+            flex: 1;
+        }
+    }
+    .workout-card {
+        cursor: grab;
+    }
+    .workout-card:active {
+        cursor: grabbing;
+    }
+    .drag-over {
+        border-color: #22d3ee !important;
+        background: rgba(34, 211, 238, 0.1) !important;
+    }
+    .dragging {
+        opacity: 0.5;
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-dark-800/95 backdrop-blur border-b border-dark-600 px-4 py-3 safe-area-inset">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <a href="{{ url_for('index') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+                <span class="text-sm hidden sm:inline">Back</span>
+            </a>
+            
+            <div class="text-center">
+                <h1 class="text-base font-semibold text-gray-100">Weekly Plan</h1>
+                {% if cycle %}
+                <p class="text-xs text-gray-500">{{ cycle.name }} · Week {{ current_week }} of {{ cycle.length_weeks }}</p>
+                {% endif %}
+            </div>
+            
+            <div class="flex items-center gap-2">
+                {% if cycle %}
+                <a href="{{ url_for('cycle_view', cycle_id=cycle.id) }}" 
+                   class="text-sm text-gray-400 hover:text-accent transition-colors"
+                   title="View full cycle">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </a>
+                {% else %}
+                <a href="{{ url_for('cycle_new') }}" 
+                   class="text-sm px-3 py-1.5 bg-accent text-dark-900 rounded-lg font-medium hover:bg-accent/90 transition-colors">
+                    New Cycle
+                </a>
+                {% endif %}
+            </div>
+        </div>
+    </header>
+    
+    <!-- Week Navigation -->
+    <div class="bg-dark-800 border-b border-dark-700 px-4 py-2">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <button onclick="changeWeek(-1)" 
+                    class="p-2 text-gray-400 hover:text-gray-200 transition-colors {{ 'opacity-50 cursor-not-allowed' if current_week <= 1 else '' }}"
+                    {{ 'disabled' if current_week <= 1 else '' }}>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+            </button>
+            
+            <div class="text-center">
+                <p class="text-sm text-gray-300">{{ week_start.strftime('%b %d') }} - {{ week_end.strftime('%b %d, %Y') }}</p>
+                {% if is_current_week %}
+                <span class="text-xs text-accent">This Week</span>
+                {% endif %}
+            </div>
+            
+            <button onclick="changeWeek(1)"
+                    class="p-2 text-gray-400 hover:text-gray-200 transition-colors {{ 'opacity-50 cursor-not-allowed' if cycle and current_week >= cycle.length_weeks else '' }}"
+                    {{ 'disabled' if cycle and current_week >= cycle.length_weeks else '' }}>
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                </svg>
+            </button>
+        </div>
+    </div>
+    
+    <!-- Main Content -->
+    <main class="flex-1 px-4 py-4">
+        <div class="max-w-6xl mx-auto">
+            {% if not cycle %}
+            <!-- No Active Cycle -->
+            <div class="text-center py-12">
+                <div class="w-20 h-20 bg-dark-700 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                    <svg class="w-10 h-10 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <h3 class="text-xl font-semibold text-gray-200 mb-2">No Active Cycle</h3>
+                <p class="text-gray-500 mb-6 max-w-md mx-auto">
+                    Create a training cycle to plan your workouts. Cycles help you stay consistent and track your progress over 4-8 weeks.
+                </p>
+                <a href="{{ url_for('cycle_new') }}" 
+                   class="inline-flex items-center gap-2 px-6 py-3 bg-accent text-dark-900 rounded-xl font-semibold hover:bg-accent/90 transition-colors">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Create Your First Cycle
+                </a>
+            </div>
+            {% else %}
+            <!-- Weekly Calendar View -->
+            <div class="week-scroll flex gap-3 overflow-x-auto pb-4 md:overflow-visible md:grid md:grid-cols-7">
+                {% set days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] %}
+                {% set short_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
+                
+                {% for i in range(7) %}
+                {% set day_date = week_dates[i] %}
+                {% set is_today = day_date == today %}
+                {% set day_workouts = scheduled_by_day.get(i, []) %}
+                
+                <div class="day-card flex-shrink-0 flex flex-col"
+                     data-day="{{ i }}"
+                     ondragover="handleDragOver(event)"
+                     ondragleave="handleDragLeave(event)"
+                     ondrop="handleDrop(event, {{ i }})">
+                    
+                    <!-- Day Header -->
+                    <div class="text-center mb-2">
+                        <p class="text-xs text-gray-500 uppercase tracking-wide">{{ short_days[i] }}</p>
+                        <p class="text-lg font-semibold {{ 'text-accent' if is_today else 'text-gray-300' }}">
+                            {{ day_date.day }}
+                        </p>
+                        {% if is_today %}
+                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent"></span>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Day Content -->
+                    <div class="flex-1 bg-dark-800 border {{ 'border-accent/50' if is_today else 'border-dark-600' }} rounded-xl p-3 min-h-[200px] transition-colors">
+                        {% if day_workouts %}
+                            {% for workout in day_workouts %}
+                            <div class="workout-card bg-dark-700 border border-dark-500 rounded-lg p-3 mb-2 last:mb-0 transition-all hover:border-gray-500"
+                                 draggable="true"
+                                 data-workout-id="{{ workout.id }}"
+                                 data-slot-id="{{ workout.cycle_workout_slot_id }}"
+                                 ondragstart="handleDragStart(event)"
+                                 ondragend="handleDragEnd(event)">
+                                
+                                <div class="flex items-start justify-between mb-2">
+                                    <h4 class="font-medium text-gray-100 text-sm leading-tight">
+                                        {{ workout.cycle_workout_slots.workout_name if workout.cycle_workout_slots else 'Workout' }}
+                                    </h4>
+                                    <span class="flex-shrink-0 ml-2 px-1.5 py-0.5 text-xs rounded 
+                                        {{ 'bg-success/20 text-success' if workout.status == 'completed' else '' }}
+                                        {{ 'bg-warning/20 text-warning' if workout.status == 'rescheduled' else '' }}
+                                        {{ 'bg-dark-600 text-gray-400' if workout.status == 'scheduled' else '' }}
+                                        {{ 'bg-red-500/20 text-red-400' if workout.status == 'skipped' else '' }}">
+                                        {{ workout.status | capitalize }}
+                                    </span>
+                                </div>
+                                
+                                {% if workout.cycle_workout_slots and workout.cycle_workout_slots.is_heavy_focus %}
+                                <div class="flex flex-wrap gap-1 mb-2">
+                                    {% for focus in workout.cycle_workout_slots.is_heavy_focus %}
+                                    <span class="px-1.5 py-0.5 text-xs rounded bg-accent/20 text-accent capitalize">
+                                        {{ focus }} heavy
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                                {% endif %}
+                                
+                                <!-- Actions -->
+                                <div class="flex gap-2 mt-3 pt-2 border-t border-dark-600">
+                                    {% if workout.status == 'scheduled' %}
+                                    <a href="{{ url_for('workout_from_schedule', scheduled_id=workout.id) }}" 
+                                       class="flex-1 py-1.5 text-center text-xs font-medium bg-accent text-dark-900 rounded hover:bg-accent/90 transition-colors">
+                                        Start
+                                    </a>
+                                    <button onclick="skipWorkout('{{ workout.id }}')"
+                                            class="px-2 py-1.5 text-xs text-gray-500 hover:text-red-400 transition-colors">
+                                        Skip
+                                    </button>
+                                    {% elif workout.status == 'completed' %}
+                                    <a href="{{ url_for('history') }}" 
+                                       class="flex-1 py-1.5 text-center text-xs text-gray-400 hover:text-gray-200 transition-colors">
+                                        View Log
+                                    </a>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <!-- Rest Day -->
+                            <div class="h-full flex items-center justify-center">
+                                <p class="text-gray-600 text-sm">Rest</p>
+                            </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            
+            <!-- Week Summary -->
+            <div class="mt-6 bg-dark-800 border border-dark-600 rounded-xl p-4">
+                <h3 class="text-sm font-medium text-gray-400 mb-3">Week {{ current_week }} Summary</h3>
+                <div class="grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <p class="text-2xl font-bold text-gray-100">{{ week_stats.completed }}</p>
+                        <p class="text-xs text-gray-500">Completed</p>
+                    </div>
+                    <div>
+                        <p class="text-2xl font-bold text-gray-100">{{ week_stats.scheduled }}</p>
+                        <p class="text-xs text-gray-500">Remaining</p>
+                    </div>
+                    <div>
+                        <p class="text-2xl font-bold {{ 'text-success' if week_stats.completion_rate >= 80 else 'text-gray-100' }}">
+                            {{ week_stats.completion_rate }}%
+                        </p>
+                        <p class="text-xs text-gray-500">Complete</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Today's Suggestion -->
+            {% if next_workout %}
+            <div class="mt-4 bg-gradient-to-r from-accent/10 to-transparent border border-accent/30 rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <p class="text-xs text-accent uppercase tracking-wide mb-1">Up Next</p>
+                        <h4 class="font-semibold text-gray-100">
+                            {{ next_workout.cycle_workout_slots.workout_name if next_workout.cycle_workout_slots else 'Workout' }}
+                        </h4>
+                        <p class="text-sm text-gray-500">
+                            {{ next_workout.scheduled_date }}
+                        </p>
+                    </div>
+                    <a href="{{ url_for('workout_from_schedule', scheduled_id=next_workout.id) }}" 
+                       class="px-4 py-2 bg-accent text-dark-900 rounded-lg font-medium hover:bg-accent/90 transition-colors">
+                        Start Now
+                    </a>
+                </div>
+            </div>
+            {% endif %}
+            {% endif %}
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let draggedElement = null;
+    
+    function handleDragStart(event) {
+        draggedElement = event.target.closest('.workout-card');
+        draggedElement.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', draggedElement.dataset.workoutId);
+    }
+    
+    function handleDragEnd(event) {
+        draggedElement.classList.remove('dragging');
+        document.querySelectorAll('.day-card > div:last-child').forEach(el => {
+            el.classList.remove('drag-over');
+        });
+        draggedElement = null;
+    }
+    
+    function handleDragOver(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const dayCard = event.target.closest('.day-card');
+        if (dayCard) {
+            dayCard.querySelector(':scope > div:last-child').classList.add('drag-over');
+        }
+    }
+    
+    function handleDragLeave(event) {
+        const dayCard = event.target.closest('.day-card');
+        if (dayCard && !dayCard.contains(event.relatedTarget)) {
+            dayCard.querySelector(':scope > div:last-child').classList.remove('drag-over');
+        }
+    }
+    
+    async function handleDrop(event, newDay) {
+        event.preventDefault();
+        
+        const dayCard = event.target.closest('.day-card');
+        if (dayCard) {
+            dayCard.querySelector(':scope > div:last-child').classList.remove('drag-over');
+        }
+        
+        if (!draggedElement) return;
+        
+        const workoutId = draggedElement.dataset.workoutId;
+        
+        // Calculate new date based on day index
+        const weekStart = new Date('{{ week_start.isoformat() }}');
+        const newDate = new Date(weekStart);
+        newDate.setDate(newDate.getDate() + newDay);
+        
+        try {
+            const response = await fetch(`/api/schedule/${workoutId}/reschedule`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    new_date: newDate.toISOString().split('T')[0] 
+                })
+            });
+            
+            if (response.ok) {
+                // Reload to show updated schedule
+                location.reload();
+            } else {
+                alert('Failed to reschedule workout');
+            }
+        } catch (err) {
+            console.error('Reschedule error:', err);
+            alert('Failed to reschedule workout');
+        }
+    }
+    
+    function changeWeek(delta) {
+        const url = new URL(window.location);
+        const currentWeek = parseInt('{{ current_week }}') || 1;
+        url.searchParams.set('week', currentWeek + delta);
+        window.location = url;
+    }
+    
+    async function skipWorkout(workoutId) {
+        if (!confirm('Skip this workout?')) return;
+        
+        try {
+            const response = await fetch(`/api/schedule/${workoutId}/skip`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                location.reload();
+            }
+        } catch (err) {
+            console.error('Skip error:', err);
+        }
+    }
+</script>
+{% endblock %}

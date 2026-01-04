@@ -1,7 +1,9 @@
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session, flash
 from functools import wraps
 from config import Config
+from datetime import date, datetime, timedelta
 import db
+import db_cycles
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -169,7 +171,15 @@ def index():
         from data.routines import get_routine as get_local_routine
         routine = get_local_routine('ppl_3day')
     
-    return render_template('index.html', routine=routine, user=user)
+    # Get active cycle if user is logged in
+    active_cycle = None
+    if user:
+        try:
+            active_cycle = db_cycles.get_active_cycle(user['id'])
+        except Exception as e:
+            print(f"Error fetching active cycle: {e}")
+    
+    return render_template('index.html', routine=routine, user=user, active_cycle=active_cycle)
 
 
 @app.route('/workout/<day_id>')
@@ -227,7 +237,141 @@ def profile():
     user = get_current_user()
     profile_data = db.get_user_profile(user['id'])
     
-    return render_template('profile.html', profile=profile_data, user=user)
+    # Get active cycle
+    active_cycle = None
+    try:
+        active_cycle = db_cycles.get_active_cycle(user['id'])
+    except Exception as e:
+        print(f"Error fetching active cycle: {e}")
+    
+    return render_template('profile.html', profile=profile_data, user=user, active_cycle=active_cycle)
+
+
+# ============================================
+# PLANNING ROUTES (Phase 3)
+# ============================================
+
+@app.route('/plan')
+@login_required
+def plan():
+    """Weekly planning view."""
+    user = get_current_user()
+    
+    # Get active cycle
+    active_cycle = db_cycles.get_active_cycle(user['id'])
+    
+    # Get current week's scheduled workouts
+    today = date.today()
+    week_start = today - timedelta(days=today.weekday())  # Monday
+    
+    scheduled_workouts = []
+    if active_cycle:
+        scheduled_workouts = db_cycles.get_scheduled_workouts_for_week(user['id'], week_start)
+    
+    return render_template('plan.html', 
+                         user=user, 
+                         active_cycle=active_cycle,
+                         scheduled_workouts=scheduled_workouts,
+                         week_start=week_start)
+
+
+@app.route('/cycle/new')
+@login_required
+def cycle_new():
+    """Create new cycle wizard."""
+    user = get_current_user()
+    profile = db.get_user_profile(user['id'])
+    
+    # Get previous cycle for copy option
+    previous_cycle = db_cycles.get_previous_cycle(user['id'])
+    
+    # Get all exercises for selection
+    try:
+        exercises = db.get_all_exercises()
+    except:
+        from data.routines import EXERCISES
+        exercises = list(EXERCISES.values())
+    
+    return render_template('cycle_new.html', 
+                         user=user, 
+                         profile=profile,
+                         previous_cycle=previous_cycle,
+                         exercises=exercises)
+
+
+@app.route('/cycle/<cycle_id>')
+@login_required
+def cycle_view(cycle_id):
+    """View/edit a specific cycle."""
+    user = get_current_user()
+    
+    cycle = db_cycles.get_cycle_by_id(cycle_id)
+    if not cycle:
+        flash('Cycle not found.', 'error')
+        return redirect(url_for('plan'))
+    
+    # Get workout slots and exercises
+    workout_slots = db_cycles.get_cycle_workout_slots(cycle_id)
+    exercises = db_cycles.get_cycle_exercises(cycle_id)
+    
+    # Organize exercises by slot
+    exercises_by_slot = {}
+    for ex in exercises:
+        slot_id = ex['cycle_workout_slot_id']
+        if slot_id not in exercises_by_slot:
+            exercises_by_slot[slot_id] = []
+        exercises_by_slot[slot_id].append(ex)
+    
+    # Calculate stats
+    total_workouts = len(workout_slots) * cycle.get('length_weeks', 6)
+    completed_workouts = 0
+    current_week = 1
+    progress_by_week = {}
+    
+    # Initialize progress_by_week
+    for week in range(1, cycle.get('length_weeks', 6) + 1):
+        progress_by_week[week] = {'completed': 0, 'total': len(workout_slots)}
+    
+    # Try to get scheduled workouts for stats
+    try:
+        scheduled = db_cycles.get_scheduled_workouts_for_cycle(cycle_id)
+        for w in scheduled:
+            week_num = w.get('week_number', 1)
+            if w.get('status') == 'completed':
+                completed_workouts += 1
+                if week_num in progress_by_week:
+                    progress_by_week[week_num]['completed'] += 1
+        
+        # Calculate current week based on start date
+        if cycle.get('start_date'):
+            start = datetime.strptime(cycle['start_date'], '%Y-%m-%d').date()
+            days_elapsed = (date.today() - start).days
+            current_week = max(1, min(cycle.get('length_weeks', 6), (days_elapsed // 7) + 1))
+    except Exception as e:
+        print(f"Error calculating stats: {e}")
+    
+    stats = {
+        'total': total_workouts,
+        'completed': completed_workouts,
+        'completion_rate': round((completed_workouts / total_workouts * 100) if total_workouts > 0 else 0)
+    }
+    
+    # Calculate end date
+    end_date = ''
+    if cycle.get('start_date'):
+        start = datetime.strptime(cycle['start_date'], '%Y-%m-%d').date()
+        end = start + timedelta(weeks=cycle.get('length_weeks', 6))
+        end_date = end.strftime('%Y-%m-%d')
+    
+    return render_template('cycle_view.html',
+                         user=user,
+                         cycle=cycle,
+                         workout_slots=workout_slots,
+                         exercises_by_slot=exercises_by_slot,
+                         stats=stats,
+                         current_week=current_week,
+                         end_date=end_date,
+                         progress_by_week=progress_by_week)
 
 
 # ============================================
@@ -342,7 +486,7 @@ def api_exercises():
         return jsonify(exercises)
     except:
         from data.routines import EXERCISES
-        return jsonify(EXERCISES)
+        return jsonify(list(EXERCISES.values()))
 
 
 @app.route('/api/exercises/<muscle_group>')
@@ -351,6 +495,23 @@ def api_exercises_by_muscle(muscle_group):
     try:
         exercises = db.get_exercises_by_muscle_group(muscle_group)
         return jsonify(exercises)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/exercises/<muscle_group>/substitutes')
+def api_exercise_substitutes(muscle_group):
+    """Get substitute exercises for a muscle group."""
+    current = request.args.get('current')
+    equipment = request.args.get('equipment')
+    
+    try:
+        substitutes = db_cycles.get_exercise_substitutions(
+            exercise_id=current,
+            muscle_group=muscle_group,
+            equipment=equipment
+        )
+        return jsonify(substitutes)
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -369,6 +530,185 @@ def api_routine(routine_id):
         if routine:
             return jsonify(routine)
         return jsonify({'error': 'Routine not found'}), 404
+
+
+# ============================================
+# PROFILE API
+# ============================================
+
+@app.route('/api/profile/settings', methods=['POST'])
+def api_profile_settings():
+    """Update user profile training settings."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    
+    try:
+        result = db_cycles.update_profile_training_settings(
+            user_id=user['id'],
+            split_type=data.get('split_type'),
+            days_per_week=data.get('days_per_week'),
+            cycle_length_weeks=data.get('cycle_length_weeks'),
+            preferred_days=data.get('preferred_days')
+        )
+        
+        if result:
+            return jsonify({'success': True, 'profile': result})
+        return jsonify({'error': 'Failed to update settings'}), 500
+        
+    except Exception as e:
+        print(f"Profile update error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# CYCLE API
+# ============================================
+
+@app.route('/api/cycle/create', methods=['POST'])
+def api_create_cycle():
+    """Create a new training cycle."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    
+    try:
+        # Parse start date
+        start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
+        
+        # Create cycle
+        cycle = db_cycles.create_cycle(
+            user_id=user['id'],
+            name=data.get('name', f"Cycle starting {start_date}"),
+            start_date=start_date,
+            length_weeks=data.get('length_weeks', 6),
+            split_type=data.get('split_type', 'ppl_3day')
+        )
+        
+        if not cycle:
+            return jsonify({'error': 'Failed to create cycle'}), 500
+        
+        # Create workout slots
+        for slot_data in data.get('workout_slots', []):
+            slot = db_cycles.create_cycle_workout_slot(
+                cycle_id=cycle['id'],
+                day_of_week=slot_data['day_of_week'],
+                template_id=slot_data.get('template_id'),
+                workout_name=slot_data['workout_name'],
+                is_heavy_focus=slot_data.get('is_heavy_focus', []),
+                order_index=slot_data.get('order_index', 0)
+            )
+            
+            # Create exercises for this slot
+            for i, ex_data in enumerate(slot_data.get('exercises', [])):
+                db_cycles.create_cycle_exercise(
+                    cycle_id=cycle['id'],
+                    slot_id=slot['id'],
+                    exercise_id=ex_data['exercise_id'],
+                    exercise_name=ex_data['exercise_name'],
+                    muscle_group=ex_data.get('muscle_group', ''),
+                    is_heavy=ex_data.get('is_heavy', False),
+                    order_index=i,
+                    sets_heavy=ex_data.get('sets_heavy', 4),
+                    sets_light=ex_data.get('sets_light', 3),
+                    rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
+                    rep_range_light=ex_data.get('rep_range_light', '10-12'),
+                    rest_heavy=ex_data.get('rest_heavy', 180),
+                    rest_light=ex_data.get('rest_light', 90)
+                )
+        
+        return jsonify({'success': True, 'cycle': cycle, 'cycle_id': cycle['id']})
+        
+    except Exception as e:
+        print(f"Create cycle error: {e}")
+        return jsonify({'error': str(e), 'code': getattr(e, 'code', None)}), 500
+
+
+@app.route('/api/cycle/<cycle_id>/activate', methods=['POST'])
+def api_activate_cycle(cycle_id):
+    """Activate a cycle and generate schedule."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Get cycle details
+        cycle = db_cycles.get_cycle_by_id(cycle_id)
+        if not cycle:
+            return jsonify({'error': 'Cycle not found'}), 404
+        
+        # Get workout slots
+        slots = db_cycles.get_cycle_workout_slots(cycle_id)
+        
+        # Generate schedule
+        start_date = datetime.strptime(cycle['start_date'], '%Y-%m-%d').date()
+        db_cycles.generate_cycle_schedule(
+            user_id=user['id'],
+            cycle_id=cycle_id,
+            start_date=start_date,
+            length_weeks=cycle['length_weeks'],
+            workout_slots=slots
+        )
+        
+        # Activate cycle
+        result = db_cycles.activate_cycle(cycle_id)
+        
+        return jsonify({'success': True, 'cycle': result})
+        
+    except Exception as e:
+        print(f"Activate cycle error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cycle/<cycle_id>/complete', methods=['POST'])
+def api_complete_cycle(cycle_id):
+    """Mark a cycle as completed."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        result = db_cycles.complete_cycle(cycle_id)
+        return jsonify({'success': True, 'cycle': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/schedule/<scheduled_id>/reschedule', methods=['POST'])
+def api_reschedule_workout(scheduled_id):
+    """Reschedule a workout."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    new_date = datetime.strptime(data['new_date'], '%Y-%m-%d').date()
+    
+    try:
+        result = db_cycles.reschedule_workout(scheduled_id, new_date)
+        return jsonify({'success': True, 'workout': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/schedule/<scheduled_id>/skip', methods=['POST'])
+def api_skip_workout(scheduled_id):
+    """Skip a scheduled workout."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json or {}
+    
+    try:
+        result = db_cycles.skip_scheduled_workout(scheduled_id, data.get('notes'))
+        return jsonify({'success': True, 'workout': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 
 # ============================================

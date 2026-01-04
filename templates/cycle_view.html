@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}{{ cycle.name or 'Cycle' }}{% endblock %}
+
+{% block body %}
+<div class="min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-dark-800/95 backdrop-blur border-b border-dark-600 px-4 py-3 safe-area-inset">
+        <div class="max-w-2xl mx-auto flex items-center justify-between">
+            <a href="{{ url_for('plan') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+                <span class="text-sm">Plan</span>
+            </a>
+            
+            <h1 class="text-base font-semibold text-gray-100">{{ cycle.name or 'Current Cycle' }}</h1>
+            
+            <div class="w-16"></div>
+        </div>
+    </header>
+    
+    <!-- Main Content -->
+    <main class="flex-1 px-4 py-6">
+        <div class="max-w-2xl mx-auto space-y-6">
+            
+            <!-- Cycle Status Card -->
+            <div class="bg-dark-800 border border-dark-600 rounded-xl p-5">
+                <div class="flex items-center justify-between mb-4">
+                    <div>
+                        <p class="text-sm text-gray-500">{{ cycle.split_type | replace('_', ' ') | title }}</p>
+                        <h2 class="text-xl font-semibold text-gray-100">{{ cycle.name or 'Training Cycle' }}</h2>
+                    </div>
+                    <span class="px-3 py-1 text-sm rounded-lg 
+                        {{ 'bg-success/20 text-success' if cycle.status == 'active' else '' }}
+                        {{ 'bg-accent/20 text-accent' if cycle.status == 'planning' else '' }}
+                        {{ 'bg-gray-500/20 text-gray-400' if cycle.status == 'completed' else '' }}">
+                        {{ cycle.status | capitalize }}
+                    </span>
+                </div>
+                
+                <div class="grid grid-cols-3 gap-4 py-4 border-y border-dark-600">
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-gray-100">{{ current_week }}</p>
+                        <p class="text-xs text-gray-500">Current Week</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-bold text-gray-100">{{ cycle.length_weeks }}</p>
+                        <p class="text-xs text-gray-500">Total Weeks</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-2xl font-bold {{ 'text-success' if stats.completion_rate >= 80 else 'text-gray-100' }}">
+                            {{ stats.completion_rate }}%
+                        </p>
+                        <p class="text-xs text-gray-500">Complete</p>
+                    </div>
+                </div>
+                
+                <!-- Progress Bar -->
+                <div class="mt-4">
+                    <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                        <span>Week {{ current_week }} of {{ cycle.length_weeks }}</span>
+                        <span>{{ stats.completed }} / {{ stats.total }} workouts</span>
+                    </div>
+                    <div class="h-2 bg-dark-600 rounded-full overflow-hidden">
+                        <div class="h-full bg-accent rounded-full transition-all" 
+                             style="width: {{ (current_week / cycle.length_weeks * 100) | int }}%"></div>
+                    </div>
+                </div>
+                
+                <!-- Dates -->
+                <div class="mt-4 flex items-center justify-between text-sm text-gray-500">
+                    <span>Started: {{ cycle.start_date }}</span>
+                    <span>Ends: {{ end_date }}</span>
+                </div>
+            </div>
+            
+            <!-- Workout Structure -->
+            <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+                <div class="px-4 py-3 border-b border-dark-600">
+                    <h3 class="font-medium text-gray-100">Weekly Structure</h3>
+                </div>
+                
+                <div class="divide-y divide-dark-600">
+                    {% for slot in workout_slots %}
+                    <div class="p-4">
+                        <div class="flex items-center justify-between mb-2">
+                            <div>
+                                <p class="font-medium text-gray-100">{{ slot.workout_name }}</p>
+                                <p class="text-sm text-gray-500">{{ ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'][slot.day_of_week] }}</p>
+                            </div>
+                            {% if slot.is_heavy_focus %}
+                            <div class="flex gap-1">
+                                {% for focus in slot.is_heavy_focus %}
+                                <span class="px-2 py-0.5 text-xs rounded bg-accent/20 text-accent capitalize">
+                                    {{ focus }} heavy
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                        </div>
+                        
+                        <!-- Exercises for this slot -->
+                        {% set slot_exercises = exercises_by_slot.get(slot.id, []) %}
+                        {% if slot_exercises %}
+                        <div class="mt-3 space-y-1">
+                            {% for ex in slot_exercises %}
+                            <div class="flex items-center justify-between py-1.5 px-3 bg-dark-700 rounded text-sm">
+                                <span class="text-gray-300">{{ ex.exercise_name }}</span>
+                                <span class="text-gray-500">
+                                    {{ ex.sets_heavy if ex.is_heavy else ex.sets_light }}×{{ ex.rep_range_heavy if ex.is_heavy else ex.rep_range_light }}
+                                </span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Week-by-Week Progress -->
+            <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+                <div class="px-4 py-3 border-b border-dark-600">
+                    <h3 class="font-medium text-gray-100">Progress by Week</h3>
+                </div>
+                
+                <div class="p-4 grid grid-cols-4 sm:grid-cols-{{ cycle.length_weeks }} gap-2">
+                    {% for week in range(1, cycle.length_weeks + 1) %}
+                    {% set week_data = progress_by_week.get(week, {'completed': 0, 'total': 0}) %}
+                    <div class="text-center p-2 rounded-lg {{ 'bg-success/20 border border-success/30' if week_data.completed == week_data.total and week_data.total > 0 else 'bg-dark-700' }} {{ 'ring-2 ring-accent' if week == current_week else '' }}">
+                        <p class="text-xs text-gray-500 mb-1">Week {{ week }}</p>
+                        <p class="text-sm font-mono {{ 'text-success' if week_data.completed == week_data.total and week_data.total > 0 else 'text-gray-300' }}">
+                            {{ week_data.completed }}/{{ week_data.total }}
+                        </p>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <!-- Actions -->
+            <div class="space-y-3">
+                {% if cycle.status == 'planning' %}
+                <button onclick="activateCycle('{{ cycle.id }}')"
+                        class="w-full py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">
+                    Start Cycle
+                </button>
+                {% elif cycle.status == 'active' %}
+                <a href="{{ url_for('plan') }}" 
+                   class="block w-full py-3 text-center bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">
+                    View Weekly Plan
+                </a>
+                {% endif %}
+                
+                {% if cycle.status != 'completed' %}
+                <button onclick="completeCycle('{{ cycle.id }}')"
+                        class="w-full py-3 border border-dark-600 text-gray-400 rounded-xl hover:bg-dark-800 transition-colors">
+                    End Cycle Early
+                </button>
+                {% endif %}
+            </div>
+            
+        </div>
+    </main>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    async function activateCycle(cycleId) {
+        if (!confirm('Start this cycle? This will generate your workout schedule.')) return;
+        
+        try {
+            const response = await fetch(`/api/cycle/${cycleId}/activate`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                window.location.href = '/plan';
+            } else {
+                alert('Failed to activate cycle');
+            }
+        } catch (err) {
+            console.error('Activate error:', err);
+            alert('Failed to activate cycle');
+        }
+    }
+    
+    async function completeCycle(cycleId) {
+        if (!confirm('End this cycle? You can start a new one after.')) return;
+        
+        try {
+            const response = await fetch(`/api/cycle/${cycleId}/complete`, {
+                method: 'POST'
+            });
+            
+            if (response.ok) {
+                window.location.href = '/plan';
+            } else {
+                alert('Failed to complete cycle');
+            }
+        } catch (err) {
+            console.error('Complete error:', err);
+            alert('Failed to complete cycle');
+        }
+    }
+</script>
+{% endblock %}

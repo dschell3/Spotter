@@ -15,11 +15,19 @@
             <!-- User Menu -->
             <div class="flex items-center gap-3">
                 {% if current_user %}
+                <!-- Plan Link -->
+                <a href="{{ url_for('plan') }}" class="text-gray-400 hover:text-accent transition-colors" title="Weekly Plan">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                </a>
+                <!-- History Link -->
                 <a href="{{ url_for('history') }}" class="text-gray-400 hover:text-gray-200 transition-colors" title="History">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
                 </a>
+                <!-- Profile Link -->
                 <a href="{{ url_for('profile') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
                     <div class="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent text-sm font-medium">
                         {{ current_user.display_name[0] | upper if current_user.display_name else current_user.email[0] | upper }}
@@ -33,6 +41,38 @@
             </div>
         </div>
     </header>
+    
+    <!-- Active Cycle Banner -->
+    {% if current_user and active_cycle %}
+    <div class="bg-accent/10 border-b border-accent/20 px-4 py-3">
+        <div class="max-w-lg mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-lg bg-accent/20 flex items-center justify-center">
+                    <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-sm font-medium text-accent">{{ active_cycle.name or 'Active Cycle' }}</p>
+                    <p class="text-xs text-gray-500">{{ active_cycle.length_weeks }} weeks · {{ active_cycle.split_type | replace('_', ' ') | title }}</p>
+                </div>
+            </div>
+            <a href="{{ url_for('plan') }}" class="text-xs text-accent hover:text-accent/80 transition-colors">
+                View Plan →
+            </a>
+        </div>
+    </div>
+    {% elif current_user %}
+    <!-- No Active Cycle - Prompt to create -->
+    <div class="bg-dark-700 border-b border-dark-600 px-4 py-3">
+        <div class="max-w-lg mx-auto flex items-center justify-between">
+            <p class="text-sm text-gray-400">No active training cycle</p>
+            <a href="{{ url_for('cycle_new') }}" class="text-xs text-accent hover:text-accent/80 transition-colors">
+                Create Cycle →
+            </a>
+        </div>
+    </div>
+    {% endif %}
     
     <!-- Main Content -->
     <main class="flex-1 px-4 py-6">
