@@ -865,7 +865,37 @@ def api_skip_workout(scheduled_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-
+@app.route('/api/exercises/add', methods=['POST'])
+def api_add_exercise():
+    """Add a new exercise to the library."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    name = data.get('name', '').strip()
+    muscle_group = data.get('muscle_group', '')
+    equipment = data.get('equipment', '')
+    
+    if not name or not muscle_group:
+        return jsonify({'error': 'Name and muscle group required'}), 400
+    
+    try:
+        supabase = db.get_supabase_client()
+        response = supabase.table('exercises').insert({
+            'name': name,
+            'muscle_group': muscle_group,
+            'equipment': equipment,
+            'is_compound': False,
+            'cues': []
+        }).execute()
+        
+        if response.data:
+            return jsonify(response.data[0])
+        return jsonify({'error': 'Failed to add exercise'}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    
 # ============================================
 # PWA ROUTES
 # ============================================
