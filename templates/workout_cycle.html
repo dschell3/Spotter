@@ -108,7 +108,8 @@
                             <div class="video-section border-t border-dark-600 pt-3 mt-3" 
                                  data-exercise-id="{{ exercise.id }}"
                                  data-exercise-name="{{ exercise.name }}"
-                                 data-video-url="{{ exercise.video_url or '' }}">
+                                 data-video-url="{{ exercise.video_url or '' }}"
+                                 data-excluded-videos="">
                                 
                                 {% if exercise.video_url %}
                                 <!-- Has saved video -->
@@ -561,7 +562,21 @@
         modal.classList.add('hidden');
     }
     
-    async function searchVideo(exerciseIndex) {
+    // Extract video ID from URL
+    function extractVideoId(videoUrl) {
+        if (!videoUrl) return '';
+        if (videoUrl.includes('v=')) {
+            return videoUrl.split('v=')[1].split('&')[0];
+        } else if (videoUrl.includes('youtu.be/')) {
+            return videoUrl.split('youtu.be/')[1].split('?')[0];
+        } else if (videoUrl.includes('/embed/')) {
+            return videoUrl.split('/embed/')[1].split('?')[0];
+        } else {
+            return videoUrl.split('/').pop();
+        }
+    }
+    
+    async function searchVideo(exerciseIndex, excludeIds = '') {
         const card = document.querySelector(`[data-exercise-index="${exerciseIndex}"]`);
         const videoSection = card.querySelector('.video-section');
         const exerciseId = videoSection.dataset.exerciseId;
@@ -579,10 +594,19 @@
         searchBtn.disabled = true;
         
         try {
-            const response = await fetch(`/api/exercises/${exerciseId}/suggest-video?name=${encodeURIComponent(exerciseName)}`);
+            // Include exclude parameter if we have IDs to exclude
+            let url = `/api/exercises/${exerciseId}/suggest-video?name=${encodeURIComponent(exerciseName)}`;
+            if (excludeIds) {
+                url += `&exclude=${encodeURIComponent(excludeIds)}`;
+            }
+            
+            const response = await fetch(url);
             const data = await response.json();
             
             if (data.video) {
+                // Store this video URL for potential exclusion later
+                videoSection.dataset.videoUrl = data.video.url;
+                
                 // Show suggestion for approval
                 suggestionDiv.innerHTML = `
                     <div class="flex items-start gap-3">
@@ -619,7 +643,7 @@
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                     </svg>
-                    <span>No video found</span>
+                    <span>${excludeIds ? 'No more videos found' : 'No video found'}</span>
                 `;
                 searchBtn.disabled = false;
             }
@@ -640,10 +664,49 @@
         const card = document.querySelector(`[data-exercise-index="${exerciseIndex}"]`);
         const videoSection = card.querySelector('.video-section');
         const exerciseId = videoSection.dataset.exerciseId;
+        const exerciseName = videoSection.dataset.exerciseName;
+        const currentVideoUrl = videoSection.dataset.videoUrl || '';
         
-        // Clear existing video first
+        // Extract current video ID to exclude
+        const currentVideoId = extractVideoId(currentVideoUrl);
+        
+        // Get existing excluded IDs and add current one
+        let excludedVideos = videoSection.dataset.excludedVideos || '';
+        if (currentVideoId) {
+            if (excludedVideos) {
+                excludedVideos += ',' + currentVideoId;
+            } else {
+                excludedVideos = currentVideoId;
+            }
+        }
+        
+        // Store updated exclusions
+        videoSection.dataset.excludedVideos = excludedVideos;
+        videoSection.dataset.videoUrl = '';
+        
+        // Reset to empty state HTML so searchVideo can find the elements it needs
+        videoSection.innerHTML = `
+            <div class="video-empty">
+                <button onclick="searchVideo(${exerciseIndex}, '${excludedVideos}')"
+                        class="video-search-btn flex items-center gap-2 text-xs text-gray-500 hover:text-accent transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span>Find demo video</span>
+                </button>
+            </div>
+            <div class="video-suggestion hidden mt-3"></div>
+        `;
+        
+        // Restore excluded videos data attribute (innerHTML cleared it)
+        videoSection.dataset.excludedVideos = excludedVideos;
+        videoSection.dataset.exerciseId = exerciseId;
+        videoSection.dataset.exerciseName = exerciseName;
+        
+        // Clear on server then search with exclusions
         fetch(`/api/exercises/${exerciseId}/clear-video`, { method: 'POST' })
-            .then(() => searchVideo(exerciseIndex))
+            .then(() => searchVideo(exerciseIndex, excludedVideos))
             .catch(err => console.error('Clear video error:', err));
     }
     
@@ -662,12 +725,7 @@
                 const exerciseName = videoSection.dataset.exerciseName;
                 
                 // Extract video ID for thumbnail
-                let videoId = '';
-                if (videoUrl.includes('v=')) {
-                    videoId = videoUrl.split('v=')[1].split('&')[0];
-                } else {
-                    videoId = videoUrl.split('/').pop();
-                }
+                const videoId = extractVideoId(videoUrl);
                 
                 // Update to saved state
                 videoSection.innerHTML = `
@@ -692,6 +750,9 @@
                     </div>
                 `;
                 videoSection.dataset.videoUrl = videoUrl;
+                videoSection.dataset.exerciseId = exerciseId;
+                videoSection.dataset.exerciseName = exerciseName;
+                videoSection.dataset.excludedVideos = '';  // Clear exclusions on approve
             }
         } catch (err) {
             console.error('Approve video error:', err);

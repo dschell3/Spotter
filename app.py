@@ -921,6 +921,7 @@ Focus on:
 def api_suggest_video(exercise_id):
     """Search YouTube for a short demo video for an exercise."""
     exercise_name = request.args.get('name', '')
+    exclude_ids = [x for x in request.args.get('exclude', '').split(',') if x]  # List of video IDs to exclude
     
     if not exercise_name:
         return jsonify({'error': 'Exercise name required'}), 400
@@ -943,7 +944,7 @@ def api_suggest_video(exercise_id):
                 'q': search_query,
                 'type': 'video',
                 'videoDuration': 'short',  # Under 4 minutes
-                'maxResults': 5,
+                'maxResults': 10,  # Get more results to allow for exclusions
                 'order': 'relevance',
                 'safeSearch': 'strict',
                 'key': youtube_api_key
@@ -959,8 +960,11 @@ def api_suggest_video(exercise_id):
         data = response.json()
         items = data.get('items', [])
         
+        # Filter out excluded videos
+        items = [item for item in items if item['id']['videoId'] not in exclude_ids]
+        
         if not items:
-            return jsonify({'video': None, 'message': 'No videos found'})
+            return jsonify({'video': None, 'message': 'No more videos found'})
         
         # Get video details to check duration
         video_ids = ','.join([item['id']['videoId'] for item in items])
@@ -978,13 +982,16 @@ def api_suggest_video(exercise_id):
         if details_response.status_code == 200:
             details_data = details_response.json()
             
-            # Find the first video under 1 minute
-            for video in details_data.get('items', []):
+            # Filter out excluded videos from details too
+            videos = [v for v in details_data.get('items', []) if v['id'] not in exclude_ids]
+            
+            # Find the first video under 30 seconds
+            for video in videos:
                 duration = video['contentDetails']['duration']
                 # Parse ISO 8601 duration (e.g., PT1M30S, PT45S, PT2M)
                 seconds = parse_youtube_duration(duration)
                 
-                if seconds <= 60:  # Under 1 minute
+                if seconds <= 30:  # Under 30 seconds
                     video_id = video['id']
                     return jsonify({
                         'video': {
@@ -998,36 +1005,41 @@ def api_suggest_video(exercise_id):
                         }
                     })
             
-            # If no videos under 1 min, return the shortest one
-            shortest = min(details_data.get('items', []), 
-                          key=lambda v: parse_youtube_duration(v['contentDetails']['duration']))
-            video_id = shortest['id']
+            # If no videos under 30 seconds, return the shortest one
+            if videos:
+                shortest = min(videos, key=lambda v: parse_youtube_duration(v['contentDetails']['duration']))
+                video_id = shortest['id']
+                return jsonify({
+                    'video': {
+                        'id': video_id,
+                        'url': f'https://www.youtube.com/watch?v={video_id}',
+                        'embed_url': f'https://www.youtube.com/embed/{video_id}',
+                        'thumbnail': f'https://img.youtube.com/vi/{video_id}/mqdefault.jpg',
+                        'title': shortest['snippet']['title'],
+                        'channel': shortest['snippet']['channelTitle'],
+                        'duration': parse_youtube_duration(shortest['contentDetails']['duration'])
+                    },
+                    'note': 'No videos under 1 minute found, showing shortest available'
+                })
+            else:
+                return jsonify({'video': None, 'message': 'No more videos found'})
+        
+        # Fallback to first search result
+        if items:
+            first = items[0]
+            video_id = first['id']['videoId']
             return jsonify({
                 'video': {
                     'id': video_id,
                     'url': f'https://www.youtube.com/watch?v={video_id}',
                     'embed_url': f'https://www.youtube.com/embed/{video_id}',
                     'thumbnail': f'https://img.youtube.com/vi/{video_id}/mqdefault.jpg',
-                    'title': shortest['snippet']['title'],
-                    'channel': shortest['snippet']['channelTitle'],
-                    'duration': parse_youtube_duration(shortest['contentDetails']['duration'])
-                },
-                'note': 'No videos under 1 minute found, showing shortest available'
+                    'title': first['snippet']['title'],
+                    'channel': first['snippet']['channelTitle']
+                }
             })
         
-        # Fallback to first search result
-        first = items[0]
-        video_id = first['id']['videoId']
-        return jsonify({
-            'video': {
-                'id': video_id,
-                'url': f'https://www.youtube.com/watch?v={video_id}',
-                'embed_url': f'https://www.youtube.com/embed/{video_id}',
-                'thumbnail': f'https://img.youtube.com/vi/{video_id}/mqdefault.jpg',
-                'title': first['snippet']['title'],
-                'channel': first['snippet']['channelTitle']
-            }
-        })
+        return jsonify({'video': None, 'message': 'No more videos found'})
         
     except Exception as e:
         print(f"YouTube search error: {e}")
