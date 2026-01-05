@@ -189,8 +189,9 @@
 <!-- Exercise Modal -->
 <div id="exercise-modal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/70" onclick="closeModal()"></div>
-    <div class="absolute bottom-0 left-0 right-0 bg-dark-800 rounded-t-2xl max-h-[85vh] overflow-hidden">
-        <div class="p-4 border-b border-dark-600">
+    <div class="absolute bottom-0 left-0 right-0 bg-dark-800 rounded-t-2xl max-h-[85vh] flex flex-col">
+        <!-- Fixed Header -->
+        <div class="p-4 border-b border-dark-600 flex-shrink-0">
             <div class="flex items-center justify-between">
                 <h3 id="modal-title" class="font-semibold text-gray-100">Select Exercise</h3>
                 <button onclick="closeModal()" class="text-gray-500 hover:text-gray-300">
@@ -216,8 +217,10 @@
                 </select>
             </div>
         </div>
-        <div id="exercise-options" class="p-4 overflow-y-auto max-h-[45vh] space-y-2"></div>
-        <div class="p-4 border-t border-dark-600">
+        <!-- Scrollable Content -->
+        <div class="flex-1 overflow-y-auto pb-4">
+            <div id="exercise-options" class="p-4 space-y-2 min-h-[200px]"></div>
+            <div class="p-4 border-t border-dark-600">
             <button onclick="toggleAddForm()" id="add-new-btn" class="w-full py-3 border border-dashed border-gray-600 rounded-lg text-gray-400 hover:border-accent hover:text-accent transition-colors">+ Add New Exercise</button>
             <div id="add-form" class="hidden mt-4 space-y-3">
                 <input type="text" id="new-name" placeholder="Exercise name" class="w-full bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
@@ -266,6 +269,7 @@
                 </div>
             </div>
         </div>
+        </div><!-- Close scrollable content -->
     </div>
 </div>
 {% endblock %}
@@ -868,8 +872,13 @@
     }
     
     function toggleAddForm() {
-        document.getElementById('add-form').classList.toggle('hidden');
-        document.getElementById('add-new-btn').classList.toggle('hidden');
+        const addForm = document.getElementById('add-form');
+        const addBtn = document.getElementById('add-new-btn');
+        const isHidden = addForm.classList.contains('hidden');
+        
+        addForm.classList.toggle('hidden');
+        addBtn.classList.toggle('hidden');
+        
         // Reset cues container
         document.getElementById('cues-container').innerHTML = `
             <div class="flex gap-2">
@@ -877,6 +886,13 @@
                 <button onclick="removeCueInput(this)" class="text-gray-500 hover:text-red-400">×</button>
             </div>
         `;
+        
+        // Scroll form into view when opening
+        if (isHidden) {
+            setTimeout(() => {
+                addForm.scrollIntoView({ behavior: 'smooth', block: 'end' });
+            }, 50);
+        }
     }
     
     function addCueInput() {
