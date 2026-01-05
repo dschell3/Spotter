@@ -17,12 +17,12 @@
     .drag-handle:active {
         cursor: grabbing;
     }
-    /* Small inputs for sets/reps */
-    .mini-input {
-        width: 3.5rem;
-        text-align: center;
-        padding: 0.25rem 0.5rem;
-        font-size: 0.875rem;
+    .generating {
+        animation: pulse 1.5s infinite;
+    }
+    @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
     }
 </style>
 {% endblock %}
@@ -134,6 +134,18 @@
                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
                         <p class="text-xs text-gray-500 mt-1">Cycles start on Monday</p>
                     </div>
+                    
+                    <!-- Show Rest Intervals Toggle -->
+                    <div class="flex items-center justify-between py-3 border-t border-dark-600">
+                        <div>
+                            <p class="text-sm font-medium text-gray-300">Show Rest Intervals</p>
+                            <p class="text-xs text-gray-500">Display rest times between sets during workouts</p>
+                        </div>
+                        <button type="button" id="show-rest-toggle" onclick="toggleShowRest()"
+                                class="relative inline-flex h-6 w-11 items-center rounded-full bg-accent transition-colors">
+                            <span class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-6"></span>
+                        </button>
+                    </div>
                 </div>
                 
                 <button onclick="goToStep(2)" class="w-full mt-6 py-3 bg-accent hover:bg-accent/90 text-dark-900 font-semibold rounded-xl transition-colors">Continue</button>
@@ -159,7 +171,7 @@
                 <div class="flex items-center justify-between mb-6">
                     <div>
                         <h2 class="text-xl font-semibold text-gray-100">Review Exercises</h2>
-                        <p class="text-gray-500">Tap to swap, adjust sets & reps, × to remove</p>
+                        <p class="text-gray-500">Tap to swap, drag to reorder, × to remove</p>
                     </div>
                 </div>
                 
@@ -231,6 +243,23 @@
                         <option value="bodyweight">Bodyweight</option>
                     </select>
                 </div>
+                <!-- AI Cue Generation -->
+                <div class="bg-dark-700 rounded-lg p-3 space-y-2">
+                    <div class="flex items-center justify-between">
+                        <label class="text-sm text-gray-400">Form Cues</label>
+                        <button type="button" onclick="generateCues()" id="generate-cues-btn"
+                                class="text-xs px-2 py-1 bg-accent/20 text-accent rounded hover:bg-accent/30 transition-colors">
+                            ✨ Generate with AI
+                        </button>
+                    </div>
+                    <div id="cues-container" class="space-y-1">
+                        <div class="flex gap-2">
+                            <input type="text" class="cue-input flex-1 bg-dark-600 border border-dark-500 rounded px-2 py-1.5 text-sm text-gray-100" placeholder="Cue 1">
+                            <button onclick="removeCueInput(this)" class="text-gray-500 hover:text-red-400">×</button>
+                        </div>
+                    </div>
+                    <button type="button" onclick="addCueInput()" class="text-xs text-gray-500 hover:text-accent">+ Add cue</button>
+                </div>
                 <div class="flex gap-2">
                     <button onclick="toggleAddForm()" class="flex-1 py-2 border border-dark-600 rounded-lg text-gray-400">Cancel</button>
                     <button onclick="addNewExercise()" class="flex-1 py-2 bg-accent text-dark-900 rounded-lg font-medium">Add</button>
@@ -248,6 +277,7 @@
     const dayNameToIndex = {'monday': 0, 'tuesday': 1, 'wednesday': 2, 'thursday': 3, 'friday': 4, 'saturday': 5, 'sunday': 6};
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
     const preferredDayIndices = profilePreferredDays.map(d => dayNameToIndex[d.toLowerCase()]).filter(d => d !== undefined);
+    const REST_OPTIONS = [15, 30, 60, 120, 180];
     
     let cycleConfig = {
         name: '',
@@ -255,6 +285,7 @@
         daysPerWeek: {{ profile.days_per_week if profile and profile.days_per_week else 3 }},
         lengthWeeks: {{ profile.cycle_length_weeks if profile and profile.cycle_length_weeks else 6 }},
         startDate: '{{ next_monday.isoformat() }}',
+        showRestIntervals: true,
         schedule: [],
         exercises: {}
     };
@@ -263,23 +294,35 @@
     let swapTarget = null;
     let addTarget = null;
     
-    // Map muscle groups to focus categories for heavy/light determination
-    const muscleToFocus = {
-        'chest': 'push', 'shoulders': 'push', 'triceps': 'push',
-        'back': 'pull', 'biceps': 'pull', 'rear_delts': 'pull',
-        'quads': 'legs', 'hamstrings': 'legs', 'glutes': 'legs', 'calves': 'legs'
-    };
-    
-    function isExerciseHeavy(muscleGroup, heavyFocus) {
-        const focus = muscleToFocus[muscleGroup];
-        return heavyFocus && heavyFocus.includes(focus);
-    }
-    
     // Drag state for schedule
     let draggedScheduleIndex = null;
     
     // Drag state for exercises
     let draggedExercise = { wIdx: null, eIdx: null };
+    
+    function formatRestTime(seconds) {
+        if (seconds < 60) return `${seconds}s`;
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return secs > 0 ? `${mins}:${String(secs).padStart(2, '0')}` : `${mins}:00`;
+    }
+    
+    function toggleShowRest() {
+        cycleConfig.showRestIntervals = !cycleConfig.showRestIntervals;
+        const toggle = document.getElementById('show-rest-toggle');
+        const knob = toggle.querySelector('span');
+        if (cycleConfig.showRestIntervals) {
+            toggle.classList.add('bg-accent');
+            toggle.classList.remove('bg-dark-600');
+            knob.classList.add('translate-x-6');
+            knob.classList.remove('translate-x-1');
+        } else {
+            toggle.classList.remove('bg-accent');
+            toggle.classList.add('bg-dark-600');
+            knob.classList.remove('translate-x-6');
+            knob.classList.add('translate-x-1');
+        }
+    }
     
     function getWorkoutStructure() {
         const split = cycleConfig.splitType;
@@ -499,36 +542,58 @@
         if (step === 3) loadExercisesForReview();
     }
     
+    // Map focus categories to muscle groups
+    const FOCUS_TO_MUSCLES = {
+        'push': ['chest', 'shoulders', 'triceps'],
+        'pull': ['back', 'biceps', 'rear_delts'],
+        'legs': ['quads', 'hamstrings', 'glutes', 'calves'],
+        'upper': ['chest', 'back', 'shoulders', 'biceps', 'triceps'],
+        'lower': ['quads', 'hamstrings', 'glutes', 'calves'],
+        'compound': ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'glutes']
+    };
+    
+    function isMuscleInHeavyFocus(muscleGroup, heavyFocus) {
+        if (!heavyFocus || heavyFocus.length === 0) return false;
+        for (const focus of heavyFocus) {
+            const muscles = FOCUS_TO_MUSCLES[focus.toLowerCase()] || [];
+            if (muscles.includes(muscleGroup)) return true;
+        }
+        return false;
+    }
+    
     function getDefaultExercisesForWorkout(workout) {
         const exercises = [];
-        const heavyFocus = workout.heavyFocus || [];
-        
-        // First pass: add compound movements
         for (const muscle of workout.muscles || []) {
             const muscleExs = allExercises.filter(e => e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id));
             const compound = muscleExs.find(e => e.is_compound);
             if (compound && exercises.length < 8) {
-                const isHeavy = isExerciseHeavy(compound.muscle_group, heavyFocus);
+                const isHeavy = isMuscleInHeavyFocus(muscle, workout.heavyFocus);
                 exercises.push({
                     ...compound, 
                     is_heavy: isHeavy,
-                    sets: isHeavy ? 4 : 3,
-                    rep_range: isHeavy ? '6-8' : '10-12'
+                    sets_heavy: 4,
+                    sets_light: 3,
+                    rep_range_heavy: '6-8',
+                    rep_range_light: '10-12',
+                    rest_heavy: 180,
+                    rest_light: 60
                 });
             }
         }
-        
-        // Second pass: add isolation movements
         for (const muscle of workout.muscles || []) {
             const muscleExs = allExercises.filter(e => e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id));
             const isolation = muscleExs.find(e => !e.is_compound);
             if (isolation && exercises.length < 8) {
-                const isHeavy = isExerciseHeavy(isolation.muscle_group, heavyFocus);
+                const isHeavy = isMuscleInHeavyFocus(muscle, workout.heavyFocus);
                 exercises.push({
                     ...isolation, 
                     is_heavy: isHeavy,
-                    sets: isHeavy ? 4 : 3,
-                    rep_range: isHeavy ? '6-8' : '10-12'
+                    sets_heavy: 3,
+                    sets_light: 3,
+                    rep_range_heavy: '8-10',
+                    rep_range_light: '10-12',
+                    rest_heavy: 120,
+                    rest_light: 60
                 });
             }
         }
@@ -549,7 +614,7 @@
             const workout = structure[scheduleItem.workoutIndex] || { name: scheduleItem.workoutName, muscles: scheduleItem.muscles };
             
             if (!cycleConfig.exercises[wIdx]) {
-                cycleConfig.exercises[wIdx] = getDefaultExercisesForWorkout({...workout, heavyFocus: scheduleItem.heavyFocus});
+                cycleConfig.exercises[wIdx] = getDefaultExercisesForWorkout(workout);
             }
             const exs = cycleConfig.exercises[wIdx];
             
@@ -563,72 +628,74 @@
                         <button onclick="openModal('add', ${wIdx})" class="px-3 py-1 text-xs bg-dark-600 text-accent rounded-lg hover:bg-dark-500">+ Add</button>
                     </div>
                     <div class="p-3 space-y-2 exercise-list" data-workout-idx="${wIdx}">
-                        ${exs.map((ex, eIdx) => renderExerciseTile(ex, wIdx, eIdx)).join('')}
+                        ${exs.map((ex, eIdx) => {
+                            const restTime = ex.is_heavy ? (ex.rest_heavy || 180) : (ex.rest_light || 60);
+                            const sets = ex.is_heavy ? (ex.sets_heavy || 4) : (ex.sets_light || 3);
+                            const reps = ex.is_heavy ? (ex.rep_range_heavy || '6-8') : (ex.rep_range_light || '10-12');
+                            return `
+                            <div class="exercise-tile p-3 bg-dark-700 rounded-lg group border border-transparent transition-all"
+                                 draggable="true"
+                                 data-workout-idx="${wIdx}"
+                                 data-exercise-idx="${eIdx}"
+                                 ondragstart="onExerciseDragStart(event, ${wIdx}, ${eIdx})"
+                                 ondragend="onExerciseDragEnd(event)"
+                                 ondragover="onExerciseDragOver(event)"
+                                 ondragleave="onExerciseDragLeave(event)"
+                                 ondrop="onExerciseDrop(event, ${wIdx}, ${eIdx})">
+                                <div class="flex items-center gap-2">
+                                    <div class="text-gray-600 cursor-grab active:cursor-grabbing drag-handle">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+                                        </svg>
+                                    </div>
+                                    <button onclick="openModal('swap', ${wIdx}, ${eIdx})" class="flex-1 text-left hover:bg-dark-600 rounded p-1 -m-1">
+                                        <p class="text-gray-100 text-sm">${ex.name}</p>
+                                        <p class="text-xs text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
+                                    </button>
+                                    <button onclick="removeExercise(${wIdx}, ${eIdx})" class="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                    </button>
+                                </div>
+                                <!-- Sets/Reps/Rest Controls -->
+                                <div class="flex items-center gap-2 mt-2 pt-2 border-t border-dark-600">
+                                    <div class="flex items-center gap-1">
+                                        <label class="text-xs text-gray-500">Sets:</label>
+                                        <input type="number" min="1" max="10" value="${sets}"
+                                               onchange="updateExerciseSets(${wIdx}, ${eIdx}, this.value)"
+                                               class="w-12 bg-dark-600 border border-dark-500 rounded px-2 py-1 text-center text-gray-100 text-sm font-mono focus:outline-none focus:border-accent">
+                                    </div>
+                                    <div class="flex items-center gap-1">
+                                        <label class="text-xs text-gray-500">Reps:</label>
+                                        <input type="text" value="${reps}" placeholder="8-12"
+                                               onchange="updateExerciseReps(${wIdx}, ${eIdx}, this.value)"
+                                               class="w-16 bg-dark-600 border border-dark-500 rounded px-2 py-1 text-center text-gray-100 text-sm font-mono focus:outline-none focus:border-accent">
+                                    </div>
+                                    ${cycleConfig.showRestIntervals ? `
+                                    <div class="flex items-center gap-1 rest-control" data-widx="${wIdx}" data-eidx="${eIdx}">
+                                        <label class="text-xs text-gray-500">Rest:</label>
+                                        <select onchange="updateExerciseRest(${wIdx}, ${eIdx}, this.value)"
+                                                class="rest-select bg-dark-600 border border-dark-500 rounded px-1 py-1 text-gray-100 text-xs focus:outline-none focus:border-accent">
+                                            <option value="15" ${restTime === 15 ? 'selected' : ''}>0:15</option>
+                                            <option value="30" ${restTime === 30 ? 'selected' : ''}>0:30</option>
+                                            <option value="60" ${restTime === 60 ? 'selected' : ''}>1:00</option>
+                                            <option value="120" ${restTime === 120 ? 'selected' : ''}>2:00</option>
+                                            <option value="180" ${restTime === 180 ? 'selected' : ''}>3:00</option>
+                                            <option value="custom" ${![15,30,60,120,180].includes(restTime) ? 'selected' : ''}>Other</option>
+                                        </select>
+                                        <input type="number" min="5" max="600" step="5" value="${restTime}"
+                                               onchange="updateExerciseRestCustom(${wIdx}, ${eIdx}, this.value)"
+                                               class="rest-custom w-12 bg-dark-600 border border-dark-500 rounded px-1 py-1 text-center text-gray-100 text-xs font-mono focus:outline-none focus:border-accent ${[15,30,60,120,180].includes(restTime) ? 'hidden' : ''}">
+                                        <span class="rest-custom-label text-xs text-gray-500 ${[15,30,60,120,180].includes(restTime) ? 'hidden' : ''}">s</span>
+                                    </div>
+                                    ` : ''}
+                                    <span class="ml-auto text-xs ${ex.is_heavy ? 'text-accent' : 'text-gray-500'}">${ex.is_heavy ? 'Heavy' : 'Light'}</span>
+                                </div>
+                            </div>
+                        `}).join('')}
                     </div>
                 </div>
             `;
         }).join('');
-    }
-    
-    function renderExerciseTile(ex, wIdx, eIdx) {
-        const heavyLabel = ex.is_heavy ? 
-            '<span class="px-1.5 py-0.5 text-xs rounded bg-accent/20 text-accent">Heavy</span>' : 
-            '<span class="px-1.5 py-0.5 text-xs rounded bg-dark-600 text-gray-400">Light</span>';
-        
-        return `
-            <div class="exercise-tile flex items-center gap-2 p-3 bg-dark-700 rounded-lg group border border-transparent transition-all"
-                 draggable="true"
-                 data-workout-idx="${wIdx}"
-                 data-exercise-idx="${eIdx}"
-                 ondragstart="onExerciseDragStart(event, ${wIdx}, ${eIdx})"
-                 ondragend="onExerciseDragEnd(event)"
-                 ondragover="onExerciseDragOver(event)"
-                 ondragleave="onExerciseDragLeave(event)"
-                 ondrop="onExerciseDrop(event, ${wIdx}, ${eIdx})">
-                <div class="text-gray-600 cursor-grab active:cursor-grabbing drag-handle">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
-                    </svg>
-                </div>
-                <button onclick="openModal('swap', ${wIdx}, ${eIdx})" class="flex-1 text-left hover:bg-dark-600 rounded p-1 -m-1">
-                    <div class="flex items-center gap-2">
-                        <p class="text-gray-100 text-sm">${ex.name}</p>
-                        ${heavyLabel}
-                    </div>
-                    <p class="text-xs text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
-                </button>
-                <div class="flex items-center gap-2">
-                    <div class="flex items-center gap-1">
-                        <input type="number" 
-                               value="${ex.sets}" 
-                               min="1" 
-                               max="10"
-                               onchange="updateExerciseSets(${wIdx}, ${eIdx}, this.value)"
-                               class="mini-input bg-dark-600 border border-dark-500 rounded text-gray-100 focus:outline-none focus:border-accent"
-                               title="Sets">
-                        <span class="text-xs text-gray-500">×</span>
-                        <input type="text" 
-                               value="${ex.rep_range}" 
-                               onchange="updateExerciseReps(${wIdx}, ${eIdx}, this.value)"
-                               class="mini-input bg-dark-600 border border-dark-500 rounded text-gray-100 focus:outline-none focus:border-accent"
-                               placeholder="8-12"
-                               title="Rep range">
-                    </div>
-                    <button onclick="removeExercise(${wIdx}, ${eIdx})" class="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                    </button>
-                </div>
-            </div>
-        `;
-    }
-    
-    function updateExerciseSets(wIdx, eIdx, value) {
-        const sets = parseInt(value) || 3;
-        cycleConfig.exercises[wIdx][eIdx].sets = Math.max(1, Math.min(10, sets));
-    }
-    
-    function updateExerciseReps(wIdx, eIdx, value) {
-        cycleConfig.exercises[wIdx][eIdx].rep_range = value || '10-12';
     }
     
     // Exercise drag handlers
@@ -682,8 +749,6 @@
     
     function openModal(mode, wIdx, eIdx = null) {
         modalMode = mode;
-        const scheduleItem = cycleConfig.schedule[wIdx];
-        
         if (mode === 'swap') {
             swapTarget = { wIdx, eIdx };
             const ex = cycleConfig.exercises[wIdx][eIdx];
@@ -708,13 +773,64 @@
         swapTarget = addTarget = null;
     }
     
+    function updateExerciseSets(wIdx, eIdx, value) {
+        const ex = cycleConfig.exercises[wIdx][eIdx];
+        const sets = parseInt(value) || 3;
+        // Update both heavy and light sets based on is_heavy flag
+        if (ex.is_heavy) {
+            ex.sets_heavy = sets;
+        } else {
+            ex.sets_light = sets;
+        }
+    }
+    
+    function updateExerciseReps(wIdx, eIdx, value) {
+        const ex = cycleConfig.exercises[wIdx][eIdx];
+        const reps = value.trim() || '8-12';
+        // Update both heavy and light reps based on is_heavy flag
+        if (ex.is_heavy) {
+            ex.rep_range_heavy = reps;
+        } else {
+            ex.rep_range_light = reps;
+        }
+    }
+    
+    function updateExerciseRest(wIdx, eIdx, value) {
+        const container = document.querySelector(`.rest-control[data-widx="${wIdx}"][data-eidx="${eIdx}"]`);
+        const customInput = container?.querySelector('.rest-custom');
+        const customLabel = container?.querySelector('.rest-custom-label');
+        
+        if (value === 'custom') {
+            // Show custom input
+            customInput?.classList.remove('hidden');
+            customLabel?.classList.remove('hidden');
+            customInput?.focus();
+        } else {
+            // Hide custom input and set the value
+            customInput?.classList.add('hidden');
+            customLabel?.classList.add('hidden');
+            
+            const ex = cycleConfig.exercises[wIdx][eIdx];
+            const seconds = parseInt(value) || 60;
+            ex.rest_heavy = seconds;
+            ex.rest_light = seconds;
+        }
+    }
+    
+    function updateExerciseRestCustom(wIdx, eIdx, value) {
+        const ex = cycleConfig.exercises[wIdx][eIdx];
+        const seconds = parseInt(value) || 60;
+        ex.rest_heavy = seconds;
+        ex.rest_light = seconds;
+    }
+    
     function filterExercises() {
         const search = document.getElementById('exercise-search').value.toLowerCase();
         const muscle = document.getElementById('muscle-filter').value;
         const filtered = allExercises.filter(e => (!search || e.name.toLowerCase().includes(search)) && (!muscle || e.muscle_group === muscle));
         
         document.getElementById('exercise-options').innerHTML = filtered.map(ex => `
-            <button onclick="selectExercise('${ex.id}', \`${ex.name.replace(/`/g, '\\`')}\`, '${ex.muscle_group}', '${ex.equipment || ''}')"
+            <button onclick="selectExercise('${ex.id}', \`${ex.name.replace(/`/g, '\\`')}\`, '${ex.muscle_group}', '${ex.equipment || ''}', ${ex.is_compound || false})"
                     class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 text-left">
                 <div>
                     <p class="text-gray-100">${ex.name}</p>
@@ -724,38 +840,23 @@
         `).join('') || '<p class="text-center text-gray-500 py-4">No exercises found</p>';
     }
     
-    function selectExercise(id, name, muscle, equipment) {
-        // Determine the workout's heavy focus to set is_heavy correctly
-        let heavyFocus = [];
-        let targetWIdx = null;
-        
-        if (modalMode === 'swap' && swapTarget) {
-            targetWIdx = swapTarget.wIdx;
-        } else if (modalMode === 'add' && addTarget) {
-            targetWIdx = addTarget.wIdx;
-        }
-        
-        if (targetWIdx !== null) {
-            heavyFocus = cycleConfig.schedule[targetWIdx].heavyFocus || [];
-        }
-        
-        const isHeavy = isExerciseHeavy(muscle, heavyFocus);
+    function selectExercise(id, name, muscle, equipment, isCompound = false) {
         const data = { 
             id, 
             name, 
             muscle_group: muscle, 
             equipment, 
-            is_heavy: isHeavy,
-            sets: isHeavy ? 4 : 3,
-            rep_range: isHeavy ? '6-8' : '10-12'
+            is_heavy: false,
+            is_compound: isCompound,
+            sets_heavy: isCompound ? 4 : 3,
+            sets_light: 3,
+            rep_range_heavy: isCompound ? '6-8' : '8-10',
+            rep_range_light: '10-12',
+            rest_heavy: isCompound ? 180 : 60,
+            rest_light: 60
         };
-        
-        if (modalMode === 'swap' && swapTarget) {
-            cycleConfig.exercises[swapTarget.wIdx][swapTarget.eIdx] = data;
-        } else if (modalMode === 'add' && addTarget) {
-            cycleConfig.exercises[addTarget.wIdx].push(data);
-        }
-        
+        if (modalMode === 'swap' && swapTarget) cycleConfig.exercises[swapTarget.wIdx][swapTarget.eIdx] = data;
+        else if (modalMode === 'add' && addTarget) cycleConfig.exercises[addTarget.wIdx].push(data);
         closeModal();
         loadExercisesForReview();
     }
@@ -769,24 +870,103 @@
     function toggleAddForm() {
         document.getElementById('add-form').classList.toggle('hidden');
         document.getElementById('add-new-btn').classList.toggle('hidden');
+        // Reset cues container
+        document.getElementById('cues-container').innerHTML = `
+            <div class="flex gap-2">
+                <input type="text" class="cue-input flex-1 bg-dark-600 border border-dark-500 rounded px-2 py-1.5 text-sm text-gray-100" placeholder="Cue 1">
+                <button onclick="removeCueInput(this)" class="text-gray-500 hover:text-red-400">×</button>
+            </div>
+        `;
+    }
+    
+    function addCueInput() {
+        const container = document.getElementById('cues-container');
+        const count = container.querySelectorAll('.cue-input').length + 1;
+        const div = document.createElement('div');
+        div.className = 'flex gap-2';
+        div.innerHTML = `
+            <input type="text" class="cue-input flex-1 bg-dark-600 border border-dark-500 rounded px-2 py-1.5 text-sm text-gray-100" placeholder="Cue ${count}">
+            <button onclick="removeCueInput(this)" class="text-gray-500 hover:text-red-400">×</button>
+        `;
+        container.appendChild(div);
+    }
+    
+    function removeCueInput(btn) {
+        const container = document.getElementById('cues-container');
+        if (container.children.length > 1) {
+            btn.parentElement.remove();
+        }
+    }
+    
+    async function generateCues() {
+        const name = document.getElementById('new-name').value.trim();
+        const muscle = document.getElementById('new-muscle').value;
+        const equipment = document.getElementById('new-equipment').value;
+        
+        if (!name) {
+            alert('Enter exercise name first');
+            return;
+        }
+        
+        const btn = document.getElementById('generate-cues-btn');
+        btn.textContent = 'Generating...';
+        btn.classList.add('generating');
+        btn.disabled = true;
+        
+        try {
+            const response = await fetch('/api/exercises/generate-cues', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, muscle_group: muscle, equipment })
+            });
+            
+            const data = await response.json();
+            const cues = data.cues || [];
+            
+            // Populate cue inputs
+            const container = document.getElementById('cues-container');
+            container.innerHTML = cues.map((cue, i) => `
+                <div class="flex gap-2">
+                    <input type="text" class="cue-input flex-1 bg-dark-600 border border-dark-500 rounded px-2 py-1.5 text-sm text-gray-100" placeholder="Cue ${i+1}" value="${cue.replace(/"/g, '&quot;')}">
+                    <button onclick="removeCueInput(this)" class="text-gray-500 hover:text-red-400">×</button>
+                </div>
+            `).join('');
+            
+            if (cues.length === 0) {
+                addCueInput();
+            }
+            
+        } catch (err) {
+            console.error('Generate cues error:', err);
+            alert('Failed to generate cues');
+        } finally {
+            btn.textContent = '✨ Generate with AI';
+            btn.classList.remove('generating');
+            btn.disabled = false;
+        }
     }
     
     async function addNewExercise() {
         const name = document.getElementById('new-name').value.trim();
         const muscle = document.getElementById('new-muscle').value;
         const equipment = document.getElementById('new-equipment').value;
+        
+        // Collect cues
+        const cueInputs = document.querySelectorAll('#cues-container .cue-input');
+        const cues = Array.from(cueInputs).map(input => input.value.trim()).filter(c => c);
+        
         if (!name || !muscle) { alert('Enter name and muscle group'); return; }
         
         try {
             const response = await fetch('/api/exercises/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, muscle_group: muscle, equipment })
+                body: JSON.stringify({ name, muscle_group: muscle, equipment, cues })
             });
             if (response.ok) {
                 const newEx = await response.json();
                 allExercises.push(newEx);
-                selectExercise(newEx.id, newEx.name, newEx.muscle_group, newEx.equipment);
+                selectExercise(newEx.id, newEx.name, newEx.muscle_group, newEx.equipment, false);
             } else throw new Error('Failed');
         } catch (err) { alert('Failed to add exercise'); }
     }
@@ -809,13 +989,12 @@
                     exercise_name: ex.name,
                     muscle_group: ex.muscle_group,
                     is_heavy: ex.is_heavy || false,
-                    // Use configured values for the appropriate mode, defaults for the other
-                    sets_heavy: ex.is_heavy ? (ex.sets || 4) : 4,
-                    sets_light: ex.is_heavy ? 3 : (ex.sets || 3),
-                    rep_range_heavy: ex.is_heavy ? (ex.rep_range || '6-8') : '6-8',
-                    rep_range_light: ex.is_heavy ? '10-12' : (ex.rep_range || '10-12'),
-                    rest_heavy: 180,
-                    rest_light: 90
+                    sets_heavy: ex.sets_heavy || 4,
+                    sets_light: ex.sets_light || 3,
+                    rep_range_heavy: ex.rep_range_heavy || '6-8',
+                    rep_range_light: ex.rep_range_light || '10-12',
+                    rest_heavy: ex.rest_heavy || 180,
+                    rest_light: ex.rest_light || 60
                 }))
             }));
             

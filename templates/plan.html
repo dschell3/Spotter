@@ -10,7 +10,7 @@
     }
     .day-card {
         scroll-snap-align: start;
-        min-width: 140px;
+        min-width: 120px;
     }
     @media (min-width: 768px) {
         .day-card {
@@ -125,7 +125,7 @@
             </div>
             {% else %}
             <!-- Weekly Calendar View -->
-            <div class="week-scroll flex gap-3 overflow-x-auto pb-4 md:overflow-visible md:grid md:grid-cols-7">
+            <div class="week-scroll flex gap-2 overflow-x-auto pb-4 md:overflow-visible md:grid md:grid-cols-7">
                 {% set days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] %}
                 {% set short_days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] %}
                 
@@ -140,53 +140,47 @@
                      ondragleave="handleDragLeave(event)"
                      ondrop="handleDrop(event, {{ i }})">
                     
-                    <!-- Day Header -->
-                    <div class="text-center mb-2">
-                        <p class="text-xs text-gray-500 uppercase tracking-wide">{{ short_days[i] }}</p>
-                        <p class="text-lg font-semibold {{ 'text-accent' if is_today else 'text-gray-300' }}">
-                            {{ day_date.day }}
-                        </p>
-                        {% if is_today %}
-                        <span class="inline-block w-1.5 h-1.5 rounded-full bg-accent"></span>
-                        {% endif %}
-                    </div>
-                    
-                    <!-- Day Content -->
-                    <div class="flex-1 bg-dark-800 border {{ 'border-accent/50' if is_today else 'border-dark-600' }} rounded-xl p-3 min-h-[200px] transition-colors">
+                    <!-- Day Content Card -->
+                    <div class="flex-1 bg-dark-800 border-2 {{ 'border-accent' if is_today else 'border-dark-600' }} rounded-xl p-3 min-h-[220px] transition-colors flex flex-col">
+                        
+                        <!-- Day Header - Inside Card -->
+                        <div class="text-center mb-3 pb-2 border-b border-dark-600">
+                            <p class="text-xs text-gray-500 uppercase tracking-wide">{{ short_days[i] }}</p>
+                            <p class="text-xl font-semibold {{ 'text-accent' if is_today else 'text-gray-300' }}">
+                                {{ day_date.day }}
+                            </p>
+                        </div>
+                        
                         {% if day_workouts %}
                             {% for workout in day_workouts %}
-                            <div class="workout-card bg-dark-700 border border-dark-500 rounded-lg p-3 mb-2 last:mb-0 transition-all hover:border-gray-500"
+                            <div class="workout-card flex-1 flex flex-col rounded-lg transition-all"
                                  draggable="true"
                                  data-workout-id="{{ workout.id }}"
                                  data-slot-id="{{ workout.cycle_workout_slot_id }}"
                                  ondragstart="handleDragStart(event)"
                                  ondragend="handleDragEnd(event)">
                                 
-                                <div class="flex items-start justify-between mb-2">
-                                    <h4 class="font-medium text-gray-100 text-sm leading-tight">
-                                        {{ workout.cycle_workout_slots.workout_name if workout.cycle_workout_slots else 'Workout' }}
-                                    </h4>
-                                    <span class="flex-shrink-0 ml-2 px-1.5 py-0.5 text-xs rounded 
+                                <!-- Status Badge - Top -->
+                                <div class="mb-2">
+                                    <span class="inline-block px-2 py-0.5 text-xs rounded-full
                                         {{ 'bg-success/20 text-success' if workout.status == 'completed' else '' }}
                                         {{ 'bg-warning/20 text-warning' if workout.status == 'rescheduled' else '' }}
-                                        {{ 'bg-dark-600 text-gray-400' if workout.status == 'scheduled' else '' }}
+                                        {{ 'bg-accent/20 text-accent' if workout.status == 'scheduled' else '' }}
                                         {{ 'bg-red-500/20 text-red-400' if workout.status == 'skipped' else '' }}">
                                         {{ workout.status | capitalize }}
                                     </span>
                                 </div>
                                 
-                                {% if workout.cycle_workout_slots and workout.cycle_workout_slots.is_heavy_focus %}
-                                <div class="flex flex-wrap gap-1 mb-2">
-                                    {% for focus in workout.cycle_workout_slots.is_heavy_focus %}
-                                    <span class="px-1.5 py-0.5 text-xs rounded bg-accent/20 text-accent capitalize">
-                                        {{ focus }} heavy
-                                    </span>
-                                    {% endfor %}
-                                </div>
-                                {% endif %}
+                                <!-- Workout Name -->
+                                <h4 class="font-medium text-gray-100 text-sm leading-tight mb-2">
+                                    {{ workout.cycle_workout_slots.workout_name if workout.cycle_workout_slots else 'Workout' }}
+                                </h4>
                                 
-                                <!-- Actions -->
-                                <div class="flex gap-2 mt-3 pt-2 border-t border-dark-600">
+                                <!-- Spacer to push actions to bottom -->
+                                <div class="flex-1"></div>
+                                
+                                <!-- Actions - Bottom -->
+                                <div class="flex gap-2 pt-2 border-t border-dark-600">
                                     {% if workout.status == 'scheduled' %}
                                     <a href="{{ url_for('workout_from_schedule', scheduled_id=workout.id) }}" 
                                        class="flex-1 py-1.5 text-center text-xs font-medium bg-accent text-dark-900 rounded hover:bg-accent/90 transition-colors">
@@ -207,7 +201,7 @@
                             {% endfor %}
                         {% else %}
                             <!-- Rest Day -->
-                            <div class="h-full flex items-center justify-center">
+                            <div class="flex-1 flex items-center justify-center">
                                 <p class="text-gray-600 text-sm">Rest</p>
                             </div>
                         {% endif %}
@@ -276,7 +270,7 @@
     
     function handleDragEnd(event) {
         draggedElement.classList.remove('dragging');
-        document.querySelectorAll('.day-card > div:last-child').forEach(el => {
+        document.querySelectorAll('.day-card > div:first-child').forEach(el => {
             el.classList.remove('drag-over');
         });
         draggedElement = null;
@@ -287,14 +281,14 @@
         event.dataTransfer.dropEffect = 'move';
         const dayCard = event.target.closest('.day-card');
         if (dayCard) {
-            dayCard.querySelector(':scope > div:last-child').classList.add('drag-over');
+            dayCard.querySelector(':scope > div:first-child').classList.add('drag-over');
         }
     }
     
     function handleDragLeave(event) {
         const dayCard = event.target.closest('.day-card');
         if (dayCard && !dayCard.contains(event.relatedTarget)) {
-            dayCard.querySelector(':scope > div:last-child').classList.remove('drag-over');
+            dayCard.querySelector(':scope > div:first-child').classList.remove('drag-over');
         }
     }
     
@@ -303,7 +297,7 @@
         
         const dayCard = event.target.closest('.day-card');
         if (dayCard) {
-            dayCard.querySelector(':scope > div:last-child').classList.remove('drag-over');
+            dayCard.querySelector(':scope > div:first-child').classList.remove('drag-over');
         }
         
         if (!draggedElement) return;

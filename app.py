@@ -671,9 +671,10 @@ def api_save_cycle_workout():
     scheduled_id = data.get('scheduled_id')
     
     # Create the workout record
+    # Note: Pass None for template_id since cycle workouts use cycle_workout_slots, not templates
     workout = db.create_user_workout(
         user['id'],
-        data.get('slot_id'),
+        None,  # template_id - not used for cycle-based workouts
         data.get('workout_name', 'Workout'),
         user.get('access_token', '')
     )
@@ -812,6 +813,7 @@ def api_add_exercise():
     name = data.get('name', '').strip()
     muscle_group = data.get('muscle_group', '')
     equipment = data.get('equipment', '')
+    cues = data.get('cues', [])
     
     if not name or not muscle_group:
         return jsonify({'error': 'Name and muscle group required'}), 400
@@ -823,7 +825,7 @@ def api_add_exercise():
             'muscle_group': muscle_group,
             'equipment': equipment,
             'is_compound': False,
-            'cues': []
+            'cues': cues if cues else []
         }).execute()
         
         if response.data:
@@ -832,6 +834,86 @@ def api_add_exercise():
     except Exception as e:
         print(f"Add exercise error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/exercises/generate-cues', methods=['POST'])
+def api_generate_cues():
+    """Generate form cues for an exercise using AI."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    name = data.get('name', '').strip()
+    muscle_group = data.get('muscle_group', '')
+    equipment = data.get('equipment', '')
+    
+    if not name:
+        return jsonify({'error': 'Exercise name required'}), 400
+    
+    try:
+        import requests
+        
+        # Use Anthropic API to generate cues
+        api_key = app.config.get('ANTHROPIC_API_KEY') or ''
+        
+        if not api_key:
+            # Return default cues if no API key
+            default_cues = [
+                "Maintain proper form throughout",
+                "Control the movement on both concentric and eccentric phases",
+                "Breathe steadily - exhale on exertion",
+                "Focus on mind-muscle connection"
+            ]
+            return jsonify({'cues': default_cues, 'generated': False})
+        
+        prompt = f"""Generate 3-5 concise, actionable form cues for the exercise "{name}".
+Equipment: {equipment or 'bodyweight'}
+Target muscle group: {muscle_group}
+
+Return ONLY a JSON array of strings, each string being one form cue. Example:
+["Cue 1", "Cue 2", "Cue 3"]
+
+Focus on:
+- Proper body positioning
+- Movement execution
+- Common mistakes to avoid
+- Muscle engagement tips"""
+
+        response = requests.post(
+            'https://api.anthropic.com/v1/messages',
+            headers={
+                'Content-Type': 'application/json',
+                'x-api-key': api_key,
+                'anthropic-version': '2023-06-01'
+            },
+            json={
+                'model': 'claude-sonnet-4-20250514',
+                'max_tokens': 500,
+                'messages': [{'role': 'user', 'content': prompt}]
+            },
+            timeout=30
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            content = result.get('content', [{}])[0].get('text', '[]')
+            # Parse the JSON array from the response
+            import json
+            cues = json.loads(content)
+            return jsonify({'cues': cues, 'generated': True})
+        else:
+            raise Exception(f"API error: {response.status_code}")
+            
+    except Exception as e:
+        print(f"Generate cues error: {e}")
+        # Return sensible defaults on error
+        default_cues = [
+            "Maintain proper form throughout",
+            "Control the movement",
+            "Breathe steadily"
+        ]
+        return jsonify({'cues': default_cues, 'generated': False, 'error': str(e)})
 
 
 @app.route('/api/routine/<routine_id>')

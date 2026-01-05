@@ -14,3 +14,10 @@ class Config:
     # Google OAuth (configure later)
     GOOGLE_CLIENT_ID = os.getenv('GOOGLE_CLIENT_ID', '')
     GOOGLE_CLIENT_SECRET = os.getenv('GOOGLE_CLIENT_SECRET', '')
+
+    # Anthropic API (for AI-generated exercise cues)
+    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
+
+
+
+

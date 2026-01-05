@@ -57,8 +57,10 @@
                             <div>
                                 <h3 class="font-medium text-gray-100">{{ exercise.name }}</h3>
                                 <p class="text-sm text-gray-500">
-                                    {{ exercise.sets }} × {{ exercise.rep_range }} · 
-                                    <span class="text-gray-600">{{ exercise.rest_seconds // 60 }}:{{ '%02d' | format(exercise.rest_seconds % 60) }} rest</span>
+                                    {{ exercise.sets }} × {{ exercise.rep_range }}
+                                    {% if exercise.rest_seconds %}
+                                    · <span class="text-gray-600">{{ exercise.rest_seconds // 60 }}:{{ '%02d' | format(exercise.rest_seconds % 60) }} rest</span>
+                                    {% endif %}
                                     {% if exercise.is_heavy %}
                                     <span class="ml-1 text-accent">(Heavy)</span>
                                     {% else %}
@@ -81,7 +83,7 @@
                 <!-- Expanded Content -->
                 <div class="exercise-content hidden">
                     <!-- Cues -->
-                    {% if exercise.cues %}
+                    {% if exercise.cues and exercise.cues|length > 0 %}
                     <div class="px-4 pb-3">
                         <button onclick="toggleCues({{ loop.index0 }})" 
                                 class="flex items-center gap-2 text-sm text-accent-dim hover:text-accent transition-colors">
@@ -344,7 +346,9 @@
     function toggleCues(index) {
         const card = document.querySelector(`[data-exercise-index="${index}"]`);
         const cuesContent = card.querySelector('.cues-content');
-        cuesContent.classList.toggle('hidden');
+        if (cuesContent) {
+            cuesContent.classList.toggle('hidden');
+        }
     }
     
     // Set completion
