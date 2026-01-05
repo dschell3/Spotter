@@ -1,0 +1,461 @@
+{% extends "base.html" %}
+
+{% block title %}{{ day.name }}{% endblock %}
+
+{% block body %}
+<div class="min-h-full flex flex-col bg-dark-900">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-dark-800/95 backdrop-blur border-b border-dark-600 px-4 py-3 safe-area-inset">
+        <div class="max-w-lg mx-auto flex items-center justify-between">
+            <a href="{{ url_for('plan') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+                <span class="text-sm">Back</span>
+            </a>
+            
+            <div class="text-center">
+                <h1 class="text-base font-semibold text-gray-100">{{ day.name }}</h1>
+                <p class="text-xs text-gray-500">Week {{ day_number }}{% if cycle %} · {{ cycle.name }}{% endif %}</p>
+            </div>
+            
+            <button onclick="resetWorkout()" class="text-sm text-gray-500 hover:text-warning transition-colors">
+                Reset
+            </button>
+        </div>
+    </header>
+    
+    <!-- Progress Bar -->
+    <div class="bg-dark-800 px-4 py-2 border-b border-dark-700">
+        <div class="max-w-lg mx-auto">
+            <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                <span id="progress-text">0 / {{ day.exercises | sum(attribute='sets') }} sets</span>
+                <span id="progress-percent">0%</span>
+            </div>
+            <div class="h-1.5 bg-dark-600 rounded-full overflow-hidden">
+                <div id="progress-bar" class="h-full bg-accent rounded-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Exercise List -->
+    <main class="flex-1 px-4 py-4 pb-24">
+        <div class="max-w-lg mx-auto space-y-4">
+            {% for exercise in day.exercises %}
+            <div class="exercise-card bg-dark-800 border border-dark-600 rounded-xl overflow-hidden transition-workout"
+                 data-exercise-index="{{ loop.index0 }}"
+                 data-total-sets="{{ exercise.sets }}">
+                
+                <!-- Exercise Header -->
+                <button onclick="toggleExercise({{ loop.index0 }})" 
+                        class="w-full px-4 py-4 flex items-center justify-between text-left">
+                    <div class="flex-1">
+                        <div class="flex items-center gap-3">
+                            <span class="exercise-number flex items-center justify-center w-7 h-7 rounded-lg bg-dark-600 text-gray-400 font-mono text-sm">
+                                {{ loop.index }}
+                            </span>
+                            <div>
+                                <h3 class="font-medium text-gray-100">{{ exercise.name }}</h3>
+                                <p class="text-sm text-gray-500">
+                                    {{ exercise.sets }} × {{ exercise.rep_range }} · 
+                                    <span class="text-gray-600">{{ exercise.rest_seconds // 60 }}:{{ '%02d' | format(exercise.rest_seconds % 60) }} rest</span>
+                                    {% if exercise.is_heavy %}
+                                    <span class="ml-1 text-accent">(Heavy)</span>
+                                    {% else %}
+                                    <span class="ml-1 text-gray-600">(Light)</span>
+                                    {% endif %}
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Completion indicator -->
+                    <div class="flex items-center gap-2">
+                        <span class="exercise-sets-done text-sm text-gray-600">0/{{ exercise.sets }}</span>
+                        <svg class="exercise-chevron w-5 h-5 text-gray-600 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </div>
+                </button>
+                
+                <!-- Expanded Content -->
+                <div class="exercise-content hidden">
+                    <!-- Cues -->
+                    {% if exercise.cues %}
+                    <div class="px-4 pb-3">
+                        <button onclick="toggleCues({{ loop.index0 }})" 
+                                class="flex items-center gap-2 text-sm text-accent-dim hover:text-accent transition-colors">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span>Form cues</span>
+                        </button>
+                        
+                        <div class="cues-content hidden mt-2 p-3 bg-dark-700 rounded-lg cue-animate">
+                            <ul class="space-y-1.5">
+                                {% for cue in exercise.cues %}
+                                <li class="flex items-start gap-2 text-sm text-gray-400">
+                                    <span class="text-accent mt-0.5">•</span>
+                                    {{ cue }}
+                                </li>
+                                {% endfor %}
+                            </ul>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    <!-- Sets -->
+                    <div class="px-4 pb-4 space-y-2">
+                        {% set exercise_idx = loop.index0 %}
+                        {% for set_num in range(1, exercise.sets + 1) %}
+                        <div class="set-row flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-workout"
+                             data-set-index="{{ set_num - 1 }}">
+                            
+                            <span class="set-number w-6 text-center text-sm font-mono text-gray-500">{{ set_num }}</span>
+                            
+                            <div class="flex-1 flex items-center gap-2">
+                                <!-- Weight Input -->
+                                <div class="flex-1">
+                                    <label class="sr-only">Weight</label>
+                                    <div class="relative">
+                                        <input type="number" 
+                                               class="weight-input w-full bg-dark-600 border border-dark-500 rounded-lg px-3 py-2.5 text-center text-gray-100 font-mono text-lg focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                                               placeholder="0"
+                                               inputmode="decimal"
+                                               data-exercise="{{ exercise_idx }}"
+                                               data-set="{{ set_num - 1 }}">
+                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-600">lbs</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Reps Input -->
+                                <div class="flex-1">
+                                    <label class="sr-only">Reps</label>
+                                    <div class="relative">
+                                        <input type="number" 
+                                               class="reps-input w-full bg-dark-600 border border-dark-500 rounded-lg px-3 py-2.5 text-center text-gray-100 font-mono text-lg focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent"
+                                               placeholder="{{ exercise.rep_range.split('-')[0] }}"
+                                               inputmode="numeric"
+                                               data-exercise="{{ exercise_idx }}"
+                                               data-set="{{ set_num - 1 }}">
+                                        <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-600">reps</span>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Complete Set Button -->
+                            <button class="complete-set-btn flex items-center justify-center w-11 h-11 rounded-lg bg-dark-600 border border-dark-500 text-gray-500 hover:bg-accent hover:border-accent hover:text-dark-900 transition-all active:scale-95"
+                                    onclick="completeSet({{ exercise_idx }}, {{ set_num - 1 }})">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>
+                                </svg>
+                            </button>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
+    
+    <!-- Floating Action Button - Finish Workout -->
+    <div class="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-dark-900 via-dark-900/95 to-transparent pointer-events-none">
+        <div class="max-w-lg mx-auto pointer-events-auto">
+            <button id="finish-workout-btn" 
+                    onclick="finishWorkout()"
+                    class="w-full py-4 px-6 bg-dark-700 border border-dark-600 rounded-xl text-gray-500 font-medium transition-all disabled:opacity-50"
+                    disabled>
+                Complete Workout
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Workout state
+    const STORAGE_KEY = 'workout_cycle_{{ scheduled_workout.id }}';
+    const TOTAL_SETS = {{ day.exercises | sum(attribute='sets') }};
+    const SCHEDULED_ID = '{{ scheduled_workout.id }}';
+    const SLOT_ID = '{{ day.id }}';
+    const WORKOUT_NAME = '{{ day.name }}';
+    
+    let workoutState = {
+        scheduledId: SCHEDULED_ID,
+        slotId: SLOT_ID,
+        workoutName: WORKOUT_NAME,
+        startedAt: null,
+        exercises: [
+            {% for exercise in day.exercises %}
+            {
+                id: "{{ exercise.id }}",
+                name: "{{ exercise.name }}",
+                targetSets: {{ exercise.sets }},
+                sets: Array({{ exercise.sets }}).fill(null).map(() => ({ weight: null, reps: null, completed: false }))
+            }{% if not loop.last %},{% endif %}
+            {% endfor %}
+        ],
+        expandedExercise: 0
+    };
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', () => {
+        loadState();
+        renderState();
+        expandExercise(workoutState.expandedExercise);
+    });
+    
+    // State Management
+    function loadState() {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+            try {
+                const parsed = JSON.parse(saved);
+                // Merge saved data into state
+                workoutState = { ...workoutState, ...parsed };
+                
+                // Restore input values
+                workoutState.exercises.forEach((exercise, exIdx) => {
+                    exercise.sets.forEach((set, setIdx) => {
+                        const weightInput = document.querySelector(`.weight-input[data-exercise="${exIdx}"][data-set="${setIdx}"]`);
+                        const repsInput = document.querySelector(`.reps-input[data-exercise="${exIdx}"][data-set="${setIdx}"]`);
+                        
+                        if (weightInput && set.weight !== null) weightInput.value = set.weight;
+                        if (repsInput && set.reps !== null) repsInput.value = set.reps;
+                    });
+                });
+            } catch (e) {
+                console.error('Failed to load state:', e);
+            }
+        }
+    }
+    
+    function saveState() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(workoutState));
+    }
+    
+    function renderState() {
+        let completedSets = 0;
+        
+        workoutState.exercises.forEach((exercise, exIdx) => {
+            const card = document.querySelector(`[data-exercise-index="${exIdx}"]`);
+            const setsDoneEl = card.querySelector('.exercise-sets-done');
+            const numberEl = card.querySelector('.exercise-number');
+            
+            let exerciseCompletedSets = exercise.sets.filter(s => s.completed).length;
+            completedSets += exerciseCompletedSets;
+            
+            setsDoneEl.textContent = `${exerciseCompletedSets}/${exercise.targetSets}`;
+            
+            // Update exercise card styling
+            if (exerciseCompletedSets === exercise.targetSets) {
+                numberEl.classList.remove('bg-dark-600', 'text-gray-400');
+                numberEl.classList.add('bg-success/20', 'text-success');
+                setsDoneEl.classList.add('text-success');
+            } else {
+                numberEl.classList.add('bg-dark-600', 'text-gray-400');
+                numberEl.classList.remove('bg-success/20', 'text-success');
+                setsDoneEl.classList.remove('text-success');
+            }
+            
+            // Update set row styling
+            exercise.sets.forEach((set, setIdx) => {
+                const setRow = card.querySelectorAll('.set-row')[setIdx];
+                const btn = setRow.querySelector('.complete-set-btn');
+                
+                if (set.completed) {
+                    setRow.classList.add('set-completed');
+                    btn.classList.add('bg-success', 'border-success', 'text-white');
+                    btn.classList.remove('bg-dark-600', 'border-dark-500', 'text-gray-500', 'hover:bg-accent', 'hover:border-accent', 'hover:text-dark-900');
+                } else {
+                    setRow.classList.remove('set-completed');
+                    btn.classList.remove('bg-success', 'border-success', 'text-white');
+                    btn.classList.add('bg-dark-600', 'border-dark-500', 'text-gray-500', 'hover:bg-accent', 'hover:border-accent', 'hover:text-dark-900');
+                }
+            });
+        });
+        
+        // Update progress
+        const percent = Math.round((completedSets / TOTAL_SETS) * 100);
+        document.getElementById('progress-bar').style.width = `${percent}%`;
+        document.getElementById('progress-text').textContent = `${completedSets} / ${TOTAL_SETS} sets`;
+        document.getElementById('progress-percent').textContent = `${percent}%`;
+        
+        // Update finish button
+        const finishBtn = document.getElementById('finish-workout-btn');
+        if (completedSets > 0) {
+            finishBtn.disabled = false;
+            finishBtn.classList.remove('bg-dark-700', 'border-dark-600', 'text-gray-500');
+            finishBtn.classList.add('bg-success', 'border-success', 'text-white', 'hover:bg-success/90');
+        } else {
+            finishBtn.disabled = true;
+            finishBtn.classList.add('bg-dark-700', 'border-dark-600', 'text-gray-500');
+            finishBtn.classList.remove('bg-success', 'border-success', 'text-white', 'hover:bg-success/90');
+        }
+    }
+    
+    // Exercise toggle
+    function toggleExercise(index) {
+        if (workoutState.expandedExercise === index) {
+            collapseExercise(index);
+            workoutState.expandedExercise = -1;
+        } else {
+            if (workoutState.expandedExercise >= 0) {
+                collapseExercise(workoutState.expandedExercise);
+            }
+            expandExercise(index);
+            workoutState.expandedExercise = index;
+        }
+        saveState();
+    }
+    
+    function expandExercise(index) {
+        const card = document.querySelector(`[data-exercise-index="${index}"]`);
+        if (!card) return;
+        
+        const content = card.querySelector('.exercise-content');
+        const chevron = card.querySelector('.exercise-chevron');
+        
+        content.classList.remove('hidden');
+        chevron.classList.add('rotate-180');
+        card.classList.add('exercise-active');
+        
+        // Scroll into view
+        setTimeout(() => {
+            card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 100);
+    }
+    
+    function collapseExercise(index) {
+        const card = document.querySelector(`[data-exercise-index="${index}"]`);
+        if (!card) return;
+        
+        const content = card.querySelector('.exercise-content');
+        const chevron = card.querySelector('.exercise-chevron');
+        
+        content.classList.add('hidden');
+        chevron.classList.remove('rotate-180');
+        card.classList.remove('exercise-active');
+    }
+    
+    // Cues toggle
+    function toggleCues(index) {
+        const card = document.querySelector(`[data-exercise-index="${index}"]`);
+        const cuesContent = card.querySelector('.cues-content');
+        cuesContent.classList.toggle('hidden');
+    }
+    
+    // Set completion
+    function completeSet(exerciseIndex, setIndex) {
+        const exercise = workoutState.exercises[exerciseIndex];
+        const set = exercise.sets[setIndex];
+        
+        // Get input values
+        const weightInput = document.querySelector(`.weight-input[data-exercise="${exerciseIndex}"][data-set="${setIndex}"]`);
+        const repsInput = document.querySelector(`.reps-input[data-exercise="${exerciseIndex}"][data-set="${setIndex}"]`);
+        
+        set.weight = weightInput.value ? parseFloat(weightInput.value) : null;
+        set.reps = repsInput.value ? parseInt(repsInput.value) : null;
+        set.completed = !set.completed;
+        
+        if (!workoutState.startedAt) {
+            workoutState.startedAt = new Date().toISOString();
+        }
+        
+        saveState();
+        renderState();
+        
+        // Auto-advance to next set or exercise
+        if (set.completed) {
+            // Copy weight to next set if empty
+            const nextSetIndex = setIndex + 1;
+            if (nextSetIndex < exercise.sets.length) {
+                const nextWeightInput = document.querySelector(`.weight-input[data-exercise="${exerciseIndex}"][data-set="${nextSetIndex}"]`);
+                if (nextWeightInput && !nextWeightInput.value && set.weight) {
+                    nextWeightInput.value = set.weight;
+                    exercise.sets[nextSetIndex].weight = set.weight;
+                    saveState();
+                }
+                nextWeightInput?.focus();
+            } else {
+                // Move to next exercise if all sets done
+                const nextExerciseIndex = exerciseIndex + 1;
+                if (nextExerciseIndex < workoutState.exercises.length) {
+                    toggleExercise(nextExerciseIndex);
+                }
+            }
+        }
+    }
+    
+    // Save input on change
+    document.querySelectorAll('.weight-input, .reps-input').forEach(input => {
+        input.addEventListener('change', (e) => {
+            const exerciseIndex = parseInt(e.target.dataset.exercise);
+            const setIndex = parseInt(e.target.dataset.set);
+            const value = e.target.value ? parseFloat(e.target.value) : null;
+            
+            if (e.target.classList.contains('weight-input')) {
+                workoutState.exercises[exerciseIndex].sets[setIndex].weight = value;
+            } else {
+                workoutState.exercises[exerciseIndex].sets[setIndex].reps = value;
+            }
+            
+            saveState();
+        });
+    });
+    
+    // Reset workout
+    function resetWorkout() {
+        if (confirm('Reset all progress for this workout?')) {
+            localStorage.removeItem(STORAGE_KEY);
+            location.reload();
+        }
+    }
+    
+    // Finish workout
+    async function finishWorkout() {
+        const completedSets = workoutState.exercises.reduce((sum, ex) => 
+            sum + ex.sets.filter(s => s.completed).length, 0);
+        
+        if (!confirm(`Complete workout with ${completedSets}/${TOTAL_SETS} sets done?`)) {
+            return;
+        }
+        
+        const finishBtn = document.getElementById('finish-workout-btn');
+        finishBtn.disabled = true;
+        finishBtn.textContent = 'Saving...';
+        
+        try {
+            const response = await fetch('/api/workout/save-cycle', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    scheduled_id: SCHEDULED_ID,
+                    slot_id: SLOT_ID,
+                    workout_name: WORKOUT_NAME,
+                    exercises: workoutState.exercises
+                })
+            });
+            
+            if (response.ok) {
+                // Clear local storage
+                localStorage.removeItem(STORAGE_KEY);
+                alert('Workout saved! 💪');
+                window.location.href = '/plan';
+            } else {
+                const data = await response.json();
+                throw new Error(data.error || 'Failed to save');
+            }
+        } catch (err) {
+            console.error('Save error:', err);
+            alert('Error saving workout: ' + err.message);
+            finishBtn.disabled = false;
+            finishBtn.textContent = 'Complete Workout';
+        }
+    }
+</script>
+{% endblock %}

@@ -2,6 +2,24 @@
 
 {% block title %}New Cycle{% endblock %}
 
+{% block head %}
+<style>
+    .dragging {
+        opacity: 0.5;
+    }
+    .drag-over {
+        border-color: #22d3ee !important;
+        background: rgba(34, 211, 238, 0.1) !important;
+    }
+    .drag-handle {
+        cursor: grab;
+    }
+    .drag-handle:active {
+        cursor: grabbing;
+    }
+</style>
+{% endblock %}
+
 {% block body %}
 <div class="min-h-full flex flex-col">
     <!-- Header -->
@@ -54,7 +72,7 @@
                                class="w-full bg-dark-700 border border-dark-500 rounded-lg px-4 py-3 text-gray-100 placeholder-gray-600 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
                     </div>
                     
-                    <!-- Split Type - Same as Profile -->
+                    <!-- Split Type -->
                     <div>
                         <label class="block text-sm font-medium text-gray-400 mb-2">Training Split</label>
                         <div class="grid grid-cols-2 gap-2">
@@ -117,7 +135,7 @@
             <!-- Step 2: Schedule -->
             <div id="step-2" class="step-content hidden">
                 <h2 class="text-xl font-semibold text-gray-100 mb-2">Set Your Schedule</h2>
-                <p class="text-gray-500 mb-6">Choose which days you'll train each week</p>
+                <p class="text-gray-500 mb-6">Choose which days you'll train each week. Drag to reorder.</p>
                 
                 <div class="bg-dark-800 border border-dark-600 rounded-xl p-5">
                     <div id="schedule-grid" class="space-y-3"></div>
@@ -134,7 +152,7 @@
                 <div class="flex items-center justify-between mb-6">
                     <div>
                         <h2 class="text-xl font-semibold text-gray-100">Review Exercises</h2>
-                        <p class="text-gray-500">Tap to swap, + to add, × to remove</p>
+                        <p class="text-gray-500">Tap to swap, drag to reorder, × to remove</p>
                     </div>
                 </div>
                 
@@ -237,6 +255,12 @@
     let modalMode = 'swap';
     let swapTarget = null;
     let addTarget = null;
+    
+    // Drag state for schedule
+    let draggedScheduleIndex = null;
+    
+    // Drag state for exercises
+    let draggedExercise = { wIdx: null, eIdx: null };
     
     function getWorkoutStructure() {
         const split = cycleConfig.splitType;
@@ -362,18 +386,83 @@
         }));
         cycleConfig.exercises = {};
         
-        grid.innerHTML = structure.map((workout, i) => `
-            <div class="flex items-center gap-4 p-3 bg-dark-700 rounded-lg">
+        renderScheduleGrid();
+    }
+    
+    function renderScheduleGrid() {
+        const grid = document.getElementById('schedule-grid');
+        
+        // Sort by day of week for display
+        const sortedSchedule = [...cycleConfig.schedule].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        
+        grid.innerHTML = sortedSchedule.map((workout, displayIdx) => {
+            const originalIdx = cycleConfig.schedule.indexOf(workout);
+            return `
+            <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all cursor-grab active:cursor-grabbing"
+                 draggable="true"
+                 data-schedule-idx="${originalIdx}"
+                 ondragstart="onScheduleDragStart(event, ${originalIdx})"
+                 ondragend="onScheduleDragEnd(event)"
+                 ondragover="onScheduleDragOver(event)"
+                 ondragleave="onScheduleDragLeave(event)"
+                 ondrop="onScheduleDrop(event, ${originalIdx})">
+                <div class="text-gray-600 drag-handle">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+                    </svg>
+                </div>
                 <div class="flex-1">
-                    <p class="font-medium text-gray-100">${workout.name}</p>
+                    <p class="font-medium text-gray-100">${workout.workoutName}</p>
                     <p class="text-xs text-gray-500">${workout.muscles.slice(0, 3).join(', ')}</p>
                 </div>
-                <select onchange="cycleConfig.schedule[${i}].dayOfWeek = parseInt(this.value)"
+                <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
                         class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
-                    ${dayNames.map((name, d) => `<option value="${d}" ${defaultDays[i] === d ? 'selected' : ''}>${name}</option>`).join('')}
+                    ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
                 </select>
             </div>
-        `).join('');
+        `}).join('');
+    }
+    
+    function updateWorkoutDay(scheduleIdx, newDay) {
+        cycleConfig.schedule[scheduleIdx].dayOfWeek = newDay;
+        renderScheduleGrid(); // Re-render to re-sort
+    }
+    
+    // Schedule drag handlers
+    function onScheduleDragStart(event, idx) {
+        draggedScheduleIndex = idx;
+        event.target.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+    }
+    
+    function onScheduleDragEnd(event) {
+        event.target.classList.remove('dragging');
+        document.querySelectorAll('.schedule-tile').forEach(el => el.classList.remove('drag-over'));
+        draggedScheduleIndex = null;
+    }
+    
+    function onScheduleDragOver(event) {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        event.currentTarget.classList.add('drag-over');
+    }
+    
+    function onScheduleDragLeave(event) {
+        event.currentTarget.classList.remove('drag-over');
+    }
+    
+    function onScheduleDrop(event, targetIdx) {
+        event.preventDefault();
+        event.currentTarget.classList.remove('drag-over');
+        
+        if (draggedScheduleIndex === null || draggedScheduleIndex === targetIdx) return;
+        
+        // Swap the days of week between the two workouts
+        const tempDay = cycleConfig.schedule[draggedScheduleIndex].dayOfWeek;
+        cycleConfig.schedule[draggedScheduleIndex].dayOfWeek = cycleConfig.schedule[targetIdx].dayOfWeek;
+        cycleConfig.schedule[targetIdx].dayOfWeek = tempDay;
+        
+        renderScheduleGrid();
     }
     
     function goToStep(step) {
@@ -410,27 +499,50 @@
         const container = document.getElementById('exercises-review');
         const structure = getWorkoutStructure();
         
-        container.innerHTML = structure.map((workout, wIdx) => {
-            if (!cycleConfig.exercises[wIdx]) cycleConfig.exercises[wIdx] = getDefaultExercisesForWorkout(workout);
+        // Sort schedule by day of week for display
+        const sortedSchedule = cycleConfig.schedule
+            .map((s, idx) => ({ ...s, originalIdx: idx }))
+            .sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        
+        container.innerHTML = sortedSchedule.map((scheduleItem) => {
+            const wIdx = scheduleItem.originalIdx;
+            const workout = structure[scheduleItem.workoutIndex] || { name: scheduleItem.workoutName, muscles: scheduleItem.muscles };
+            
+            if (!cycleConfig.exercises[wIdx]) {
+                cycleConfig.exercises[wIdx] = getDefaultExercisesForWorkout(workout);
+            }
             const exs = cycleConfig.exercises[wIdx];
             
             return `
-                <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+                <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden" data-workout-idx="${wIdx}">
                     <div class="px-4 py-3 bg-dark-700 border-b border-dark-600 flex items-center justify-between">
                         <div>
-                            <h4 class="font-medium text-gray-100">${workout.name}</h4>
-                            <p class="text-xs text-gray-500">${dayNames[cycleConfig.schedule[wIdx].dayOfWeek]}</p>
+                            <h4 class="font-medium text-gray-100">${scheduleItem.workoutName}</h4>
+                            <p class="text-xs text-gray-500">${dayNames[scheduleItem.dayOfWeek]}</p>
                         </div>
                         <button onclick="openModal('add', ${wIdx})" class="px-3 py-1 text-xs bg-dark-600 text-accent rounded-lg hover:bg-dark-500">+ Add</button>
                     </div>
-                    <div class="p-3 space-y-2">
+                    <div class="p-3 space-y-2 exercise-list" data-workout-idx="${wIdx}">
                         ${exs.map((ex, eIdx) => `
-                            <div class="flex items-center gap-2 p-3 bg-dark-700 rounded-lg group">
+                            <div class="exercise-tile flex items-center gap-2 p-3 bg-dark-700 rounded-lg group border border-transparent transition-all"
+                                 draggable="true"
+                                 data-workout-idx="${wIdx}"
+                                 data-exercise-idx="${eIdx}"
+                                 ondragstart="onExerciseDragStart(event, ${wIdx}, ${eIdx})"
+                                 ondragend="onExerciseDragEnd(event)"
+                                 ondragover="onExerciseDragOver(event)"
+                                 ondragleave="onExerciseDragLeave(event)"
+                                 ondrop="onExerciseDrop(event, ${wIdx}, ${eIdx})">
+                                <div class="text-gray-600 cursor-grab active:cursor-grabbing drag-handle">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+                                    </svg>
+                                </div>
                                 <button onclick="openModal('swap', ${wIdx}, ${eIdx})" class="flex-1 text-left hover:bg-dark-600 rounded p-1 -m-1">
                                     <p class="text-gray-100 text-sm">${ex.name}</p>
                                     <p class="text-xs text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
                                 </button>
-                                <button onclick="removeExercise(${wIdx}, ${eIdx})" class="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100">
+                                <button onclick="removeExercise(${wIdx}, ${eIdx})" class="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
                                 </button>
                             </div>
@@ -439,6 +551,55 @@
                 </div>
             `;
         }).join('');
+    }
+    
+    // Exercise drag handlers
+    function onExerciseDragStart(event, wIdx, eIdx) {
+        draggedExercise = { wIdx, eIdx };
+        event.target.classList.add('dragging');
+        event.dataTransfer.effectAllowed = 'move';
+    }
+    
+    function onExerciseDragEnd(event) {
+        event.target.classList.remove('dragging');
+        document.querySelectorAll('.exercise-tile').forEach(el => el.classList.remove('drag-over'));
+        draggedExercise = { wIdx: null, eIdx: null };
+    }
+    
+    function onExerciseDragOver(event) {
+        event.preventDefault();
+        const tile = event.target.closest('.exercise-tile');
+        if (tile) {
+            const targetWIdx = parseInt(tile.dataset.workoutIdx);
+            // Only allow drag within same workout
+            if (draggedExercise.wIdx === targetWIdx) {
+                event.dataTransfer.dropEffect = 'move';
+                tile.classList.add('drag-over');
+            }
+        }
+    }
+    
+    function onExerciseDragLeave(event) {
+        const tile = event.target.closest('.exercise-tile');
+        if (tile) tile.classList.remove('drag-over');
+    }
+    
+    function onExerciseDrop(event, targetWIdx, targetEIdx) {
+        event.preventDefault();
+        const tile = event.target.closest('.exercise-tile');
+        if (tile) tile.classList.remove('drag-over');
+        
+        const { wIdx, eIdx } = draggedExercise;
+        
+        // Only allow reorder within same workout
+        if (wIdx === null || wIdx !== targetWIdx || eIdx === targetEIdx) return;
+        
+        // Reorder exercises
+        const exercises = cycleConfig.exercises[wIdx];
+        const [moved] = exercises.splice(eIdx, 1);
+        exercises.splice(targetEIdx, 0, moved);
+        
+        loadExercisesForReview();
     }
     
     function openModal(mode, wIdx, eIdx = null) {
@@ -473,7 +634,7 @@
         const filtered = allExercises.filter(e => (!search || e.name.toLowerCase().includes(search)) && (!muscle || e.muscle_group === muscle));
         
         document.getElementById('exercise-options').innerHTML = filtered.map(ex => `
-            <button onclick="selectExercise('${ex.id}', \`${ex.name}\`, '${ex.muscle_group}', '${ex.equipment || ''}')"
+            <button onclick="selectExercise('${ex.id}', \`${ex.name.replace(/`/g, '\\`')}\`, '${ex.muscle_group}', '${ex.equipment || ''}')"
                     class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 text-left">
                 <div>
                     <p class="text-gray-100">${ex.name}</p>
@@ -528,6 +689,27 @@
         btn.textContent = 'Creating...';
         
         try {
+            // Build workout_slots from schedule
+            const workout_slots = cycleConfig.schedule.map((s, idx) => ({
+                day_of_week: s.dayOfWeek,
+                template_id: null,
+                workout_name: s.workoutName,
+                is_heavy_focus: s.heavyFocus,
+                order_index: idx,
+                exercises: (cycleConfig.exercises[idx] || []).map((ex, exIdx) => ({
+                    exercise_id: ex.id,
+                    exercise_name: ex.name,
+                    muscle_group: ex.muscle_group,
+                    is_heavy: ex.is_heavy || false,
+                    sets_heavy: 4,
+                    sets_light: 3,
+                    rep_range_heavy: '6-8',
+                    rep_range_light: '10-12',
+                    rest_heavy: 180,
+                    rest_light: 90
+                }))
+            }));
+            
             const response = await fetch('/api/cycle/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -536,13 +718,20 @@
                     split_type: cycleConfig.splitType,
                     length_weeks: cycleConfig.lengthWeeks,
                     start_date: cycleConfig.startDate,
-                    schedule: cycleConfig.schedule,
-                    exercises: cycleConfig.exercises
+                    workout_slots: workout_slots
                 })
             });
             
             if (response.ok) {
-                window.location.href = '/plan';
+                // Show success notification
+                btn.textContent = 'Cycle Created! 🎉';
+                btn.classList.remove('bg-accent');
+                btn.classList.add('bg-success');
+                
+                // Brief delay so user sees success, then redirect
+                setTimeout(() => {
+                    window.location.href = '/plan';
+                }, 800);
             } else {
                 const data = await response.json();
                 throw new Error(data.error || 'Failed');

@@ -1,9 +1,5 @@
-const CACHE_NAME = 'workout-v1';
+const CACHE_NAME = 'workout-v2';
 const ASSETS_TO_CACHE = [
-    '/',
-    '/workout/1',
-    '/workout/2', 
-    '/workout/3',
     '/static/manifest.json'
 ];
 
@@ -31,50 +27,46 @@ self.addEventListener('activate', (event) => {
     );
 });
 
-// Fetch event - serve from cache, fallback to network
+// Fetch event - network first for navigation, cache for assets
 self.addEventListener('fetch', (event) => {
     // Skip non-GET requests
     if (event.request.method !== 'GET') return;
     
-    // Skip external resources (like Tailwind CDN)
+    // Skip external resources
     if (!event.request.url.startsWith(self.location.origin)) {
         return;
     }
     
+    // For navigation requests (HTML pages), always go to network
+    // This prevents issues with redirects
+    if (event.request.mode === 'navigate') {
+        event.respondWith(
+            fetch(event.request)
+                .catch(() => {
+                    // Only serve cached fallback if network fails
+                    return caches.match('/plan') || caches.match('/');
+                })
+        );
+        return;
+    }
+    
+    // For other requests (CSS, JS, images), use cache-first strategy
     event.respondWith(
         caches.match(event.request)
             .then((cachedResponse) => {
                 if (cachedResponse) {
-                    // Return cached version and update cache in background
-                    event.waitUntil(
-                        fetch(event.request)
-                            .then((response) => {
-                                if (response.ok) {
-                                    caches.open(CACHE_NAME)
-                                        .then((cache) => cache.put(event.request, response));
-                                }
-                            })
-                            .catch(() => {})
-                    );
                     return cachedResponse;
                 }
                 
-                // Not in cache, fetch from network
                 return fetch(event.request)
                     .then((response) => {
-                        // Cache successful responses
-                        if (response.ok) {
+                        // Cache successful responses for static assets
+                        if (response.ok && event.request.url.includes('/static/')) {
                             const responseClone = response.clone();
                             caches.open(CACHE_NAME)
                                 .then((cache) => cache.put(event.request, responseClone));
                         }
                         return response;
-                    })
-                    .catch(() => {
-                        // Offline fallback for navigation
-                        if (event.request.mode === 'navigate') {
-                            return caches.match('/');
-                        }
                     });
             })
     );

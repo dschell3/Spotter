@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, redirect, url_for, session, flash
+from flask import Flask, render_template, jsonify, request, redirect, url_for, session, flash, make_response
 from functools import wraps
 from config import Config
 from datetime import date, datetime, timedelta
@@ -161,8 +161,17 @@ def logout():
 
 @app.route('/')
 def index():
-    """Landing page - shows workout selection."""
+    """Landing page - shows workout selection or redirects to plan."""
     user = get_current_user()
+    
+    # If user is logged in and has an active cycle, redirect to plan
+    if user:
+        try:
+            active_cycle = db_cycles.get_active_cycle(user['id'])
+            if active_cycle:
+                return redirect(url_for('plan'))
+        except Exception as e:
+            print(f"Error checking active cycle: {e}")
     
     # Split type display names and descriptions
     SPLIT_DISPLAY_NAMES = {
@@ -210,18 +219,21 @@ def index():
         except Exception as e:
             print(f"Error fetching profile: {e}")
     
-    return render_template('index.html', 
+    response = make_response(render_template('index.html', 
                          routine=routine, 
                          user=user, 
                          active_cycle=active_cycle,
                          profile=profile,
                          split_display_name=split_display_name,
-                         split_description=split_description)
+                         split_description=split_description))
+    # Prevent browser from caching this page (so back button doesn't show stale content)
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    return response
 
 
 @app.route('/workout/<day_id>')
 def workout(day_id):
-    """Workout execution view for a specific day."""
+    """Workout execution view for a specific day (legacy/template-based)."""
     user = get_current_user()
     
     try:
@@ -491,14 +503,107 @@ def cycle_view(cycle_id):
 @app.route('/workout/schedule/<scheduled_id>')
 @login_required
 def workout_from_schedule(scheduled_id):
-    """Start a workout from the scheduled calendar."""
+    """Start a workout from the scheduled calendar - loads cycle-specific exercises."""
     user = get_current_user()
     
-    # For now, redirect to the standard workout view
-    # In a full implementation, this would load the cycle-specific workout
-    # with the correct exercises and weight suggestions
-    flash('Starting scheduled workout...', 'info')
-    return redirect(url_for('workout', day_id='1'))
+    # Get the scheduled workout
+    supabase = db.get_supabase_client()
+    
+    try:
+        # Fetch the scheduled workout with its slot info
+        scheduled_response = supabase.table('scheduled_workouts')\
+            .select('*, cycle_workout_slots(*)')\
+            .eq('id', scheduled_id)\
+            .single()\
+            .execute()
+        
+        scheduled_workout = scheduled_response.data
+        if not scheduled_workout:
+            flash('Scheduled workout not found.', 'error')
+            return redirect(url_for('plan'))
+        
+        slot = scheduled_workout.get('cycle_workout_slots')
+        if not slot:
+            flash('Workout slot not found.', 'error')
+            return redirect(url_for('plan'))
+        
+        cycle_id = scheduled_workout['cycle_id']
+        slot_id = slot['id']
+        
+        # Get exercises for this slot
+        exercises_response = supabase.table('cycle_exercises')\
+            .select('*, exercises(*)')\
+            .eq('cycle_workout_slot_id', slot_id)\
+            .order('order_index')\
+            .execute()
+        
+        cycle_exercises = exercises_response.data or []
+        
+        # Build the day data structure that workout.html expects
+        day = {
+            'id': slot_id,
+            'name': slot.get('workout_name', 'Workout'),
+            'day_number': scheduled_workout.get('week_number', 1),
+            'focus': slot.get('is_heavy_focus', []),
+            'exercises': []
+        }
+        
+        # Determine if this is a heavy or light day for each exercise
+        heavy_focuses = slot.get('is_heavy_focus', [])
+        
+        for ce in cycle_exercises:
+            exercise_data = ce.get('exercises', {})
+            
+            # Determine if this exercise should use heavy or light settings
+            # An exercise is heavy if its muscle group's focus is in the heavy_focuses list
+            is_heavy = ce.get('is_heavy', False)
+            
+            # Use the appropriate sets/reps based on heavy vs light
+            if is_heavy:
+                sets = ce.get('sets_heavy', 4)
+                rep_range = ce.get('rep_range_heavy', '6-8')
+                rest_seconds = ce.get('rest_seconds_heavy', 180)
+            else:
+                sets = ce.get('sets_light', 3)
+                rep_range = ce.get('rep_range_light', '10-12')
+                rest_seconds = ce.get('rest_seconds_light', 90)
+            
+            day['exercises'].append({
+                'id': ce.get('exercise_id'),
+                'name': ce.get('exercise_name', exercise_data.get('name', 'Unknown')),
+                'muscle_group': ce.get('muscle_group', exercise_data.get('muscle_group', '')),
+                'equipment': exercise_data.get('equipment', ''),
+                'cues': exercise_data.get('cues', []),
+                'is_compound': exercise_data.get('is_compound', False),
+                'sets': sets,
+                'rep_range': rep_range,
+                'rest_seconds': rest_seconds,
+                'is_heavy': is_heavy
+            })
+        
+        # If no exercises found, show error
+        if not day['exercises']:
+            flash('No exercises found for this workout. Please set up your cycle exercises.', 'error')
+            return redirect(url_for('plan'))
+        
+        # Get cycle info for display
+        cycle = db_cycles.get_cycle_by_id(cycle_id)
+        total_days = cycle.get('length_weeks', 6) * 3  # Approximate
+        
+        return render_template('workout_cycle.html',
+                             day=day,
+                             scheduled_workout=scheduled_workout,
+                             cycle=cycle,
+                             day_number=scheduled_workout.get('week_number', 1),
+                             total_days=total_days,
+                             user=user)
+        
+    except Exception as e:
+        print(f"Error loading scheduled workout: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Error loading workout: {str(e)}', 'error')
+        return redirect(url_for('plan'))
 
 
 # ============================================
@@ -554,6 +659,59 @@ def api_complete_workout(workout_id):
     if workout:
         return jsonify({'success': True, 'workout': workout})
     return jsonify({'error': 'Failed to complete workout'}), 500
+
+
+@app.route('/api/workout/save-cycle', methods=['POST'])
+@login_required
+def api_save_cycle_workout():
+    """Save a cycle-based workout and mark scheduled workout as completed."""
+    user = get_current_user()
+    
+    data = request.json
+    scheduled_id = data.get('scheduled_id')
+    
+    # Create the workout record
+    workout = db.create_user_workout(
+        user['id'],
+        data.get('slot_id'),
+        data.get('workout_name', 'Workout'),
+        user.get('access_token', '')
+    )
+    
+    if not workout:
+        return jsonify({'error': 'Failed to create workout'}), 500
+    
+    # Save sets
+    sets_data = []
+    for exercise in data.get('exercises', []):
+        for i, s in enumerate(exercise.get('sets', [])):
+            if s.get('completed'):
+                sets_data.append({
+                    'exercise_id': exercise.get('id'),
+                    'exercise_name': exercise.get('name'),
+                    'set_number': i + 1,
+                    'weight': s.get('weight'),
+                    'reps': s.get('reps'),
+                    'completed': True
+                })
+    
+    db.save_workout_sets(
+        workout['id'],
+        sets_data,
+        user.get('access_token', '')
+    )
+    
+    # Mark workout complete
+    db.complete_user_workout(
+        workout['id'],
+        user.get('access_token', '')
+    )
+    
+    # Mark the scheduled workout as completed
+    if scheduled_id:
+        db_cycles.complete_scheduled_workout(scheduled_id, workout['id'])
+    
+    return jsonify({'success': True, 'workout_id': workout['id']})
 
 
 @app.route('/api/workout/save-local', methods=['POST'])
@@ -643,6 +801,39 @@ def api_exercise_substitutes(muscle_group):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/exercises/add', methods=['POST'])
+def api_add_exercise():
+    """Add a new exercise to the library."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    name = data.get('name', '').strip()
+    muscle_group = data.get('muscle_group', '')
+    equipment = data.get('equipment', '')
+    
+    if not name or not muscle_group:
+        return jsonify({'error': 'Name and muscle group required'}), 400
+    
+    try:
+        supabase = db.get_supabase_client()
+        response = supabase.table('exercises').insert({
+            'name': name,
+            'muscle_group': muscle_group,
+            'equipment': equipment,
+            'is_compound': False,
+            'cues': []
+        }).execute()
+        
+        if response.data:
+            return jsonify(response.data[0])
+        return jsonify({'error': 'Failed to add exercise'}), 500
+    except Exception as e:
+        print(f"Add exercise error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/routine/<routine_id>')
 def api_routine(routine_id):
     """API endpoint to get a routine."""
@@ -657,6 +848,33 @@ def api_routine(routine_id):
         if routine:
             return jsonify(routine)
         return jsonify({'error': 'Routine not found'}), 404
+
+
+@app.route('/api/debug/cycles')
+def api_debug_cycles():
+    """Debug endpoint to check cycles table."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not logged in', 'user': None})
+    
+    try:
+        supabase = db.get_supabase_client()
+        
+        # Get all cycles for this user
+        all_cycles = supabase.table('cycles').select('*').eq('user_id', user['id']).execute()
+        
+        # Get active cycle specifically
+        active = db_cycles.get_active_cycle(user['id'])
+        
+        return jsonify({
+            'user_id': user['id'],
+            'all_cycles': all_cycles.data,
+            'active_cycle': active,
+            'cycle_count': len(all_cycles.data) if all_cycles.data else 0
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()})
 
 
 @app.route('/api/schedule/preview')
@@ -679,6 +897,20 @@ def api_schedule_preview():
     except Exception as e:
         print(f"Schedule preview error: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/profile/preferred-days')
+@login_required
+def api_profile_preferred_days():
+    """Get the user's preferred training days."""
+    user = get_current_user()
+    profile = db.get_user_profile(user['id'])
+    
+    if profile and profile.get('preferred_days'):
+        return jsonify({'preferred_days': profile['preferred_days']})
+    
+    # Default to Mon, Wed, Fri
+    return jsonify({'preferred_days': ['monday', 'wednesday', 'friday']})
 
 
 # ============================================
@@ -747,39 +979,61 @@ def api_create_cycle():
         if not cycle:
             return jsonify({'error': 'Failed to create cycle'}), 500
         
+        # Handle both old format (schedule + exercises) and new format (workout_slots with nested exercises)
+        workout_slots = data.get('workout_slots', [])
+        
         # Create workout slots
-        for slot_data in data.get('workout_slots', []):
+        created_slots = []
+        for i, slot_data in enumerate(workout_slots):
             slot = db_cycles.create_cycle_workout_slot(
                 cycle_id=cycle['id'],
-                day_of_week=slot_data['day_of_week'],
+                day_of_week=slot_data.get('day_of_week', slot_data.get('dayOfWeek', i)),
                 template_id=slot_data.get('template_id'),
-                workout_name=slot_data['workout_name'],
-                is_heavy_focus=slot_data.get('is_heavy_focus', []),
-                order_index=slot_data.get('order_index', 0)
+                workout_name=slot_data.get('workout_name', slot_data.get('workoutName', f'Workout {i+1}')),
+                is_heavy_focus=slot_data.get('is_heavy_focus', slot_data.get('heavyFocus', [])),
+                order_index=slot_data.get('order_index', i)
             )
-            
-            # Create exercises for this slot
-            for i, ex_data in enumerate(slot_data.get('exercises', [])):
-                db_cycles.create_cycle_exercise(
-                    cycle_id=cycle['id'],
-                    slot_id=slot['id'],
-                    exercise_id=ex_data['exercise_id'],
-                    exercise_name=ex_data['exercise_name'],
-                    muscle_group=ex_data.get('muscle_group', ''),
-                    is_heavy=ex_data.get('is_heavy', False),
-                    order_index=i,
-                    sets_heavy=ex_data.get('sets_heavy', 4),
-                    sets_light=ex_data.get('sets_light', 3),
-                    rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
-                    rep_range_light=ex_data.get('rep_range_light', '10-12'),
-                    rest_heavy=ex_data.get('rest_heavy', 180),
-                    rest_light=ex_data.get('rest_light', 90)
-                )
+            if slot:
+                created_slots.append(slot)
+                
+                # Create exercises for this slot (nested in workout_slots)
+                slot_exercises = slot_data.get('exercises', [])
+                for j, ex_data in enumerate(slot_exercises):
+                    db_cycles.create_cycle_exercise(
+                        cycle_id=cycle['id'],
+                        slot_id=slot['id'],
+                        exercise_id=ex_data.get('exercise_id', ex_data.get('id')),
+                        exercise_name=ex_data.get('exercise_name', ex_data.get('name')),
+                        muscle_group=ex_data.get('muscle_group', ''),
+                        is_heavy=ex_data.get('is_heavy', False),
+                        order_index=j,
+                        sets_heavy=ex_data.get('sets_heavy', 4),
+                        sets_light=ex_data.get('sets_light', 3),
+                        rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
+                        rep_range_light=ex_data.get('rep_range_light', '10-12'),
+                        rest_heavy=ex_data.get('rest_heavy', 180),
+                        rest_light=ex_data.get('rest_light', 90)
+                    )
+        
+        # Generate the schedule for all weeks
+        if created_slots:
+            db_cycles.generate_cycle_schedule(
+                user_id=user['id'],
+                cycle_id=cycle['id'],
+                start_date=start_date,
+                length_weeks=data.get('length_weeks', 6),
+                workout_slots=created_slots
+            )
+        
+        # Activate the cycle immediately
+        db_cycles.activate_cycle(cycle['id'])
         
         return jsonify({'success': True, 'cycle': cycle, 'cycle_id': cycle['id']})
         
     except Exception as e:
         print(f"Create cycle error: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'error': str(e), 'code': getattr(e, 'code', None)}), 500
 
 
@@ -833,6 +1087,35 @@ def api_complete_cycle(cycle_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/cycle/<cycle_id>/delete', methods=['POST', 'DELETE'])
+@login_required
+def api_delete_cycle(cycle_id):
+    """Delete a cycle and all associated data."""
+    user = get_current_user()
+    
+    try:
+        supabase = db.get_supabase_client()
+        
+        # Delete in order due to foreign keys
+        # 1. Delete scheduled workouts
+        supabase.table('scheduled_workouts').delete().eq('cycle_id', cycle_id).execute()
+        
+        # 2. Delete cycle exercises
+        supabase.table('cycle_exercises').delete().eq('cycle_id', cycle_id).execute()
+        
+        # 3. Delete cycle workout slots
+        supabase.table('cycle_workout_slots').delete().eq('cycle_id', cycle_id).execute()
+        
+        # 4. Delete the cycle itself
+        supabase.table('cycles').delete().eq('id', cycle_id).execute()
+        
+        return jsonify({'success': True})
+        
+    except Exception as e:
+        print(f"Delete cycle error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/schedule/<scheduled_id>/reschedule', methods=['POST'])
 def api_reschedule_workout(scheduled_id):
     """Reschedule a workout."""
@@ -850,6 +1133,85 @@ def api_reschedule_workout(scheduled_id):
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/debug/clean', methods=['POST'])
+def api_debug_clean():
+    """Clean all cycle data for the current user. USE WITH CAUTION."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        supabase = db.get_supabase_client()
+        
+        # Get all cycles for user
+        cycles_resp = supabase.table('cycles').select('id').eq('user_id', user['id']).execute()
+        cycle_ids = [c['id'] for c in (cycles_resp.data or [])]
+        
+        deleted = {'scheduled_workouts': 0, 'cycle_exercises': 0, 'cycle_workout_slots': 0, 'cycles': 0}
+        
+        if cycle_ids:
+            # Delete scheduled workouts
+            resp = supabase.table('scheduled_workouts').delete().eq('user_id', user['id']).execute()
+            deleted['scheduled_workouts'] = len(resp.data) if resp.data else 0
+            
+            # Delete cycle exercises
+            for cid in cycle_ids:
+                resp = supabase.table('cycle_exercises').delete().eq('cycle_id', cid).execute()
+                deleted['cycle_exercises'] += len(resp.data) if resp.data else 0
+            
+            # Delete cycle workout slots
+            for cid in cycle_ids:
+                resp = supabase.table('cycle_workout_slots').delete().eq('cycle_id', cid).execute()
+                deleted['cycle_workout_slots'] += len(resp.data) if resp.data else 0
+            
+            # Delete cycles
+            resp = supabase.table('cycles').delete().eq('user_id', user['id']).execute()
+            deleted['cycles'] = len(resp.data) if resp.data else 0
+        
+        return jsonify({'success': True, 'deleted': deleted})
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
+@app.route('/api/debug/schedule')
+def api_debug_schedule():
+    """Debug endpoint to check schedule data."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        # Get active cycle
+        cycle = db_cycles.get_active_cycle(user['id'])
+        
+        # Get all data for debugging
+        supabase = db.get_supabase_client()
+        
+        # All cycles for user
+        cycles_resp = supabase.table('cycles').select('*').eq('user_id', user['id']).execute()
+        
+        # All scheduled workouts for user
+        scheduled_resp = supabase.table('scheduled_workouts').select('*').eq('user_id', user['id']).execute()
+        
+        # All workout slots for active cycle
+        slots_resp = None
+        if cycle:
+            slots_resp = supabase.table('cycle_workout_slots').select('*').eq('cycle_id', cycle['id']).execute()
+        
+        return jsonify({
+            'user_id': user['id'],
+            'active_cycle': cycle,
+            'all_cycles': cycles_resp.data if cycles_resp else [],
+            'all_scheduled_workouts': scheduled_resp.data if scheduled_resp else [],
+            'cycle_workout_slots': slots_resp.data if slots_resp else [],
+            'today': date.today().isoformat()
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+
+
 @app.route('/api/schedule/<scheduled_id>/skip', methods=['POST'])
 def api_skip_workout(scheduled_id):
     """Skip a scheduled workout."""
@@ -865,37 +1227,7 @@ def api_skip_workout(scheduled_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
-@app.route('/api/exercises/add', methods=['POST'])
-def api_add_exercise():
-    """Add a new exercise to the library."""
-    user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
-    data = request.json
-    name = data.get('name', '').strip()
-    muscle_group = data.get('muscle_group', '')
-    equipment = data.get('equipment', '')
-    
-    if not name or not muscle_group:
-        return jsonify({'error': 'Name and muscle group required'}), 400
-    
-    try:
-        supabase = db.get_supabase_client()
-        response = supabase.table('exercises').insert({
-            'name': name,
-            'muscle_group': muscle_group,
-            'equipment': equipment,
-            'is_compound': False,
-            'cues': []
-        }).execute()
-        
-        if response.data:
-            return jsonify(response.data[0])
-        return jsonify({'error': 'Failed to add exercise'}), 500
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-    
+
 # ============================================
 # PWA ROUTES
 # ============================================
