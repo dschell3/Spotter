@@ -574,6 +574,7 @@ def workout_from_schedule(scheduled_id):
                 'muscle_group': ce.get('muscle_group', exercise_data.get('muscle_group', '')),
                 'equipment': exercise_data.get('equipment', ''),
                 'cues': exercise_data.get('cues', []),
+                'video_url': exercise_data.get('video_url', ''),
                 'is_compound': exercise_data.get('is_compound', False),
                 'sets': sets,
                 'rep_range': rep_range,
@@ -914,6 +915,193 @@ Focus on:
             "Breathe steadily"
         ]
         return jsonify({'cues': default_cues, 'generated': False, 'error': str(e)})
+
+
+@app.route('/api/exercises/<exercise_id>/suggest-video')
+def api_suggest_video(exercise_id):
+    """Search YouTube for a short demo video for an exercise."""
+    exercise_name = request.args.get('name', '')
+    
+    if not exercise_name:
+        return jsonify({'error': 'Exercise name required'}), 400
+    
+    youtube_api_key = app.config.get('YOUTUBE_API_KEY') or ''
+    
+    if not youtube_api_key:
+        return jsonify({'error': 'YouTube API not configured', 'video': None})
+    
+    try:
+        import requests
+        
+        # Search for short exercise form demos
+        search_query = f"{exercise_name} form demo"
+        
+        response = requests.get(
+            'https://www.googleapis.com/youtube/v3/search',
+            params={
+                'part': 'snippet',
+                'q': search_query,
+                'type': 'video',
+                'videoDuration': 'short',  # Under 4 minutes
+                'maxResults': 5,
+                'order': 'relevance',
+                'safeSearch': 'strict',
+                'key': youtube_api_key
+            },
+            timeout=10
+        )
+        
+        if response.status_code != 200:
+            error_data = response.json()
+            print(f"YouTube API error: {error_data}")
+            return jsonify({'error': 'YouTube search failed', 'details': error_data}), 500
+        
+        data = response.json()
+        items = data.get('items', [])
+        
+        if not items:
+            return jsonify({'video': None, 'message': 'No videos found'})
+        
+        # Get video details to check duration
+        video_ids = ','.join([item['id']['videoId'] for item in items])
+        
+        details_response = requests.get(
+            'https://www.googleapis.com/youtube/v3/videos',
+            params={
+                'part': 'contentDetails,snippet',
+                'id': video_ids,
+                'key': youtube_api_key
+            },
+            timeout=10
+        )
+        
+        if details_response.status_code == 200:
+            details_data = details_response.json()
+            
+            # Find the first video under 1 minute
+            for video in details_data.get('items', []):
+                duration = video['contentDetails']['duration']
+                # Parse ISO 8601 duration (e.g., PT1M30S, PT45S, PT2M)
+                seconds = parse_youtube_duration(duration)
+                
+                if seconds <= 60:  # Under 1 minute
+                    video_id = video['id']
+                    return jsonify({
+                        'video': {
+                            'id': video_id,
+                            'url': f'https://www.youtube.com/watch?v={video_id}',
+                            'embed_url': f'https://www.youtube.com/embed/{video_id}',
+                            'thumbnail': f'https://img.youtube.com/vi/{video_id}/mqdefault.jpg',
+                            'title': video['snippet']['title'],
+                            'channel': video['snippet']['channelTitle'],
+                            'duration': seconds
+                        }
+                    })
+            
+            # If no videos under 1 min, return the shortest one
+            shortest = min(details_data.get('items', []), 
+                          key=lambda v: parse_youtube_duration(v['contentDetails']['duration']))
+            video_id = shortest['id']
+            return jsonify({
+                'video': {
+                    'id': video_id,
+                    'url': f'https://www.youtube.com/watch?v={video_id}',
+                    'embed_url': f'https://www.youtube.com/embed/{video_id}',
+                    'thumbnail': f'https://img.youtube.com/vi/{video_id}/mqdefault.jpg',
+                    'title': shortest['snippet']['title'],
+                    'channel': shortest['snippet']['channelTitle'],
+                    'duration': parse_youtube_duration(shortest['contentDetails']['duration'])
+                },
+                'note': 'No videos under 1 minute found, showing shortest available'
+            })
+        
+        # Fallback to first search result
+        first = items[0]
+        video_id = first['id']['videoId']
+        return jsonify({
+            'video': {
+                'id': video_id,
+                'url': f'https://www.youtube.com/watch?v={video_id}',
+                'embed_url': f'https://www.youtube.com/embed/{video_id}',
+                'thumbnail': f'https://img.youtube.com/vi/{video_id}/mqdefault.jpg',
+                'title': first['snippet']['title'],
+                'channel': first['snippet']['channelTitle']
+            }
+        })
+        
+    except Exception as e:
+        print(f"YouTube search error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e), 'video': None}), 500
+
+
+def parse_youtube_duration(duration: str) -> int:
+    """Parse ISO 8601 duration (PT1M30S) to seconds."""
+    import re
+    
+    # Handle PT format
+    match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
+    if match:
+        hours = int(match.group(1) or 0)
+        minutes = int(match.group(2) or 0)
+        seconds = int(match.group(3) or 0)
+        return hours * 3600 + minutes * 60 + seconds
+    return 0
+
+
+@app.route('/api/exercises/<exercise_id>/save-video', methods=['POST'])
+def api_save_video(exercise_id):
+    """Save approved video URL to an exercise."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    video_url = data.get('video_url', '').strip()
+    
+    if not video_url:
+        return jsonify({'error': 'Video URL required'}), 400
+    
+    try:
+        supabase = db.get_supabase_client()
+        
+        response = supabase.table('exercises')\
+            .update({'video_url': video_url})\
+            .eq('id', exercise_id)\
+            .execute()
+        
+        if response.data:
+            return jsonify({'success': True, 'exercise': response.data[0]})
+        return jsonify({'error': 'Exercise not found'}), 404
+        
+    except Exception as e:
+        print(f"Save video error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/exercises/<exercise_id>/clear-video', methods=['POST'])
+def api_clear_video(exercise_id):
+    """Clear video URL from an exercise (to search again)."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        supabase = db.get_supabase_client()
+        
+        response = supabase.table('exercises')\
+            .update({'video_url': None})\
+            .eq('id', exercise_id)\
+            .execute()
+        
+        if response.data:
+            return jsonify({'success': True})
+        return jsonify({'error': 'Exercise not found'}), 404
+        
+    except Exception as e:
+        print(f"Clear video error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/routine/<routine_id>')

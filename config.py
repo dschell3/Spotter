@@ -18,6 +18,12 @@ class Config:
     # Anthropic API (for AI-generated exercise cues)
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY', '')
 
+    # YouTube Data API (for exercise demo videos)
+    YOUTUBE_API_KEY = os.getenv('YOUTUBE_API_KEY', '')
+
+
+
+
 
 
 

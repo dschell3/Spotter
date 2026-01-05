@@ -82,8 +82,7 @@
                 
                 <!-- Expanded Content -->
                 <div class="exercise-content hidden">
-                    <!-- Cues -->
-                    {% if exercise.cues and exercise.cues|length > 0 %}
+                    <!-- Form Cues & Video Section -->
                     <div class="px-4 pb-3">
                         <button onclick="toggleCues({{ loop.index0 }})" 
                                 class="flex items-center gap-2 text-sm text-accent-dim hover:text-accent transition-colors">
@@ -94,7 +93,8 @@
                         </button>
                         
                         <div class="cues-content hidden mt-2 p-3 bg-dark-700 rounded-lg cue-animate">
-                            <ul class="space-y-1.5">
+                            {% if exercise.cues and exercise.cues|length > 0 %}
+                            <ul class="space-y-1.5 mb-3">
                                 {% for cue in exercise.cues %}
                                 <li class="flex items-start gap-2 text-sm text-gray-400">
                                     <span class="text-accent mt-0.5">•</span>
@@ -102,9 +102,53 @@
                                 </li>
                                 {% endfor %}
                             </ul>
+                            {% endif %}
+                            
+                            <!-- Video Demo Section -->
+                            <div class="video-section border-t border-dark-600 pt-3 mt-3" 
+                                 data-exercise-id="{{ exercise.id }}"
+                                 data-exercise-name="{{ exercise.name }}"
+                                 data-video-url="{{ exercise.video_url or '' }}">
+                                
+                                {% if exercise.video_url %}
+                                <!-- Has saved video -->
+                                <div class="video-saved flex items-center gap-3">
+                                    <button onclick="openVideoModal('{{ exercise.video_url }}', '{{ exercise.name }}')"
+                                            class="relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-dark-600 hover:ring-2 hover:ring-accent transition-all">
+                                        <img src="https://img.youtube.com/vi/{{ exercise.video_url.split('v=')[-1].split('&')[0] if 'v=' in exercise.video_url else exercise.video_url.split('/')[-1] }}/mqdefault.jpg" 
+                                             alt="Video thumbnail" class="w-full h-full object-cover">
+                                        <div class="absolute inset-0 flex items-center justify-center bg-black/30">
+                                            <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                                <path d="M8 5v14l11-7z"/>
+                                            </svg>
+                                        </div>
+                                    </button>
+                                    <div class="flex-1 min-w-0">
+                                        <p class="text-xs text-gray-400 truncate">Demo video</p>
+                                        <button onclick="searchNewVideo({{ loop.index0 }})" 
+                                                class="text-xs text-gray-500 hover:text-accent transition-colors">
+                                            Find different video
+                                        </button>
+                                    </div>
+                                </div>
+                                {% else %}
+                                <!-- No video yet - show search button or loading state -->
+                                <div class="video-empty">
+                                    <button onclick="searchVideo({{ loop.index0 }})"
+                                            class="video-search-btn flex items-center gap-2 text-xs text-gray-500 hover:text-accent transition-colors">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                        </svg>
+                                        <span>Find demo video</span>
+                                    </button>
+                                </div>
+                                <!-- Video suggestion (populated by JS) -->
+                                <div class="video-suggestion hidden mt-3"></div>
+                                {% endif %}
+                            </div>
                         </div>
                     </div>
-                    {% endif %}
                     
                     <!-- Sets -->
                     <div class="px-4 pb-4 space-y-2">
@@ -170,6 +214,28 @@
                     disabled>
                 Complete Workout
             </button>
+        </div>
+    </div>
+</div>
+
+<!-- Video Modal -->
+<div id="video-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/80" onclick="closeVideoModal()"></div>
+    <div class="absolute inset-4 flex items-center justify-center">
+        <div class="bg-dark-800 rounded-2xl overflow-hidden w-full max-w-lg">
+            <div class="flex items-center justify-between p-4 border-b border-dark-600">
+                <h3 id="video-modal-title" class="font-medium text-gray-100 truncate pr-4">Exercise Demo</h3>
+                <button onclick="closeVideoModal()" class="text-gray-500 hover:text-gray-300">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="aspect-video bg-black">
+                <iframe id="video-iframe" class="w-full h-full" src="" frameborder="0" 
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                        allowfullscreen></iframe>
+            </div>
         </div>
     </div>
 </div>
@@ -460,6 +526,184 @@
             finishBtn.disabled = false;
             finishBtn.textContent = 'Complete Workout';
         }
+    }
+    
+    // ============================================
+    // VIDEO FUNCTIONS
+    // ============================================
+    
+    function openVideoModal(videoUrl, title) {
+        const modal = document.getElementById('video-modal');
+        const iframe = document.getElementById('video-iframe');
+        const modalTitle = document.getElementById('video-modal-title');
+        
+        // Extract video ID and create embed URL
+        let videoId = '';
+        if (videoUrl.includes('v=')) {
+            videoId = videoUrl.split('v=')[1].split('&')[0];
+        } else if (videoUrl.includes('youtu.be/')) {
+            videoId = videoUrl.split('youtu.be/')[1].split('?')[0];
+        } else if (videoUrl.includes('/embed/')) {
+            videoId = videoUrl.split('/embed/')[1].split('?')[0];
+        } else {
+            videoId = videoUrl.split('/').pop();
+        }
+        
+        iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1`;
+        modalTitle.textContent = title || 'Exercise Demo';
+        modal.classList.remove('hidden');
+    }
+    
+    function closeVideoModal() {
+        const modal = document.getElementById('video-modal');
+        const iframe = document.getElementById('video-iframe');
+        iframe.src = '';  // Stop video
+        modal.classList.add('hidden');
+    }
+    
+    async function searchVideo(exerciseIndex) {
+        const card = document.querySelector(`[data-exercise-index="${exerciseIndex}"]`);
+        const videoSection = card.querySelector('.video-section');
+        const exerciseId = videoSection.dataset.exerciseId;
+        const exerciseName = videoSection.dataset.exerciseName;
+        const searchBtn = videoSection.querySelector('.video-search-btn');
+        const suggestionDiv = videoSection.querySelector('.video-suggestion');
+        
+        // Show loading
+        searchBtn.innerHTML = `
+            <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span>Searching...</span>
+        `;
+        searchBtn.disabled = true;
+        
+        try {
+            const response = await fetch(`/api/exercises/${exerciseId}/suggest-video?name=${encodeURIComponent(exerciseName)}`);
+            const data = await response.json();
+            
+            if (data.video) {
+                // Show suggestion for approval
+                suggestionDiv.innerHTML = `
+                    <div class="flex items-start gap-3">
+                        <button onclick="openVideoModal('${data.video.url}', '${exerciseName}')"
+                                class="relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-dark-600 hover:ring-2 hover:ring-accent transition-all">
+                            <img src="${data.video.thumbnail}" alt="Video thumbnail" class="w-full h-full object-cover">
+                            <div class="absolute inset-0 flex items-center justify-center bg-black/30">
+                                <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                            </div>
+                        </button>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs text-gray-300 line-clamp-2">${data.video.title}</p>
+                            <p class="text-xs text-gray-500">${data.video.channel}${data.video.duration ? ' · ' + formatDuration(data.video.duration) : ''}</p>
+                            <div class="flex gap-2 mt-2">
+                                <button onclick="approveVideo('${exerciseId}', '${data.video.url}', ${exerciseIndex})"
+                                        class="px-2 py-1 text-xs bg-accent text-dark-900 rounded hover:bg-accent/90">
+                                    Use this
+                                </button>
+                                <button onclick="searchNewVideo(${exerciseIndex})"
+                                        class="px-2 py-1 text-xs text-gray-400 hover:text-accent">
+                                    Try another
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                suggestionDiv.classList.remove('hidden');
+                searchBtn.classList.add('hidden');
+            } else {
+                // No video found
+                searchBtn.innerHTML = `
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    </svg>
+                    <span>No video found</span>
+                `;
+                searchBtn.disabled = false;
+            }
+        } catch (err) {
+            console.error('Video search error:', err);
+            searchBtn.innerHTML = `
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span>Find demo video</span>
+            `;
+            searchBtn.disabled = false;
+        }
+    }
+    
+    function searchNewVideo(exerciseIndex) {
+        const card = document.querySelector(`[data-exercise-index="${exerciseIndex}"]`);
+        const videoSection = card.querySelector('.video-section');
+        const exerciseId = videoSection.dataset.exerciseId;
+        
+        // Clear existing video first
+        fetch(`/api/exercises/${exerciseId}/clear-video`, { method: 'POST' })
+            .then(() => searchVideo(exerciseIndex))
+            .catch(err => console.error('Clear video error:', err));
+    }
+    
+    async function approveVideo(exerciseId, videoUrl, exerciseIndex) {
+        try {
+            const response = await fetch(`/api/exercises/${exerciseId}/save-video`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ video_url: videoUrl })
+            });
+            
+            if (response.ok) {
+                // Refresh the video section to show saved state
+                const card = document.querySelector(`[data-exercise-index="${exerciseIndex}"]`);
+                const videoSection = card.querySelector('.video-section');
+                const exerciseName = videoSection.dataset.exerciseName;
+                
+                // Extract video ID for thumbnail
+                let videoId = '';
+                if (videoUrl.includes('v=')) {
+                    videoId = videoUrl.split('v=')[1].split('&')[0];
+                } else {
+                    videoId = videoUrl.split('/').pop();
+                }
+                
+                // Update to saved state
+                videoSection.innerHTML = `
+                    <div class="video-saved flex items-center gap-3">
+                        <button onclick="openVideoModal('${videoUrl}', '${exerciseName}')"
+                                class="relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-dark-600 hover:ring-2 hover:ring-accent transition-all">
+                            <img src="https://img.youtube.com/vi/${videoId}/mqdefault.jpg" 
+                                 alt="Video thumbnail" class="w-full h-full object-cover">
+                            <div class="absolute inset-0 flex items-center justify-center bg-black/30">
+                                <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                            </div>
+                        </button>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-xs text-gray-400 truncate">Demo video</p>
+                            <button onclick="searchNewVideo(${exerciseIndex})" 
+                                    class="text-xs text-gray-500 hover:text-accent transition-colors">
+                                Find different video
+                            </button>
+                        </div>
+                    </div>
+                `;
+                videoSection.dataset.videoUrl = videoUrl;
+            }
+        } catch (err) {
+            console.error('Approve video error:', err);
+            alert('Failed to save video');
+        }
+    }
+    
+    function formatDuration(seconds) {
+        if (seconds < 60) return `0:${String(seconds).padStart(2, '0')}`;
+        const mins = Math.floor(seconds / 60);
+        const secs = seconds % 60;
+        return `${mins}:${String(secs).padStart(2, '0')}`;
     }
 </script>
 {% endblock %}
