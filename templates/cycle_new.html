@@ -24,6 +24,17 @@
         0%, 100% { opacity: 1; }
         50% { opacity: 0.5; }
     }
+    .week-tab {
+        transition: all 0.2s;
+    }
+    .week-tab.active {
+        background: rgba(34, 211, 238, 0.2);
+        border-color: #22d3ee;
+        color: #22d3ee;
+    }
+    .week-tab:not(.active):hover {
+        background: rgba(255, 255, 255, 0.05);
+    }
 </style>
 {% endblock %}
 
@@ -154,7 +165,7 @@
             <!-- Step 2: Schedule -->
             <div id="step-2" class="step-content hidden">
                 <h2 class="text-xl font-semibold text-gray-100 mb-2">Set Your Schedule</h2>
-                <p class="text-gray-500 mb-6">Choose which days you'll train each week. Drag to reorder.</p>
+                <p class="text-gray-500 mb-6">Choose which days you'll train each week. <span id="step2-drag-hint">Drag to reorder.</span></p>
                 
                 <div class="bg-dark-800 border border-dark-600 rounded-xl p-5">
                     <div id="schedule-grid" class="space-y-3"></div>
@@ -168,10 +179,33 @@
             
             <!-- Step 3: Exercises -->
             <div id="step-3" class="step-content hidden">
-                <div class="flex items-center justify-between mb-6">
+                <div class="flex items-center justify-between mb-4">
                     <div>
-                        <h2 class="text-xl font-semibold text-gray-100">Review Exercises</h2>
-                        <p class="text-gray-500">Tap to swap, drag to reorder, × to remove</p>
+                        <h2 class="text-xl font-semibold text-gray-100">Plan Exercises</h2>
+                        <p class="text-gray-500 text-sm">Tap to swap, drag to reorder, × to remove</p>
+                    </div>
+                </div>
+                
+                <!-- Week Navigation Tabs -->
+                <div class="mb-4">
+                    <div class="flex items-center gap-2 mb-3">
+                        <span class="text-sm text-gray-400">Week:</span>
+                        <div id="week-tabs" class="flex gap-1 flex-wrap">
+                            <!-- Populated dynamically -->
+                        </div>
+                    </div>
+                    
+                    <!-- Copy Week Actions -->
+                    <div class="flex flex-wrap gap-2">
+                        <button onclick="copyWeekTo('all')" class="px-3 py-1.5 text-xs bg-dark-700 border border-dark-600 rounded-lg text-gray-400 hover:text-accent hover:border-accent transition-colors">
+                            Copy to All Weeks
+                        </button>
+                        <button onclick="copyWeekTo('odd')" class="px-3 py-1.5 text-xs bg-dark-700 border border-dark-600 rounded-lg text-gray-400 hover:text-accent hover:border-accent transition-colors">
+                            Copy to Odd Weeks
+                        </button>
+                        <button onclick="copyWeekTo('even')" class="px-3 py-1.5 text-xs bg-dark-700 border border-dark-600 rounded-lg text-gray-400 hover:text-accent hover:border-accent transition-colors">
+                            Copy to Even Weeks
+                        </button>
                     </div>
                 </div>
                 
@@ -272,6 +306,21 @@
         </div><!-- Close scrollable content -->
     </div>
 </div>
+
+<!-- Copy Confirmation Modal -->
+<div id="copy-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/70" onclick="closeCopyModal()"></div>
+    <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-dark-800 rounded-xl w-[90%] max-w-md p-5">
+        <h3 class="font-semibold text-gray-100 mb-2">Overwrite Existing Exercises?</h3>
+        <p id="copy-modal-message" class="text-sm text-gray-400 mb-4">
+            Some weeks already have exercises configured. Copying will replace them.
+        </p>
+        <div class="flex gap-3">
+            <button onclick="closeCopyModal()" class="flex-1 py-2 border border-dark-600 text-gray-400 rounded-lg hover:bg-dark-700 transition-colors">Cancel</button>
+            <button onclick="confirmCopyWeek()" class="flex-1 py-2 bg-accent text-dark-900 rounded-lg font-medium hover:bg-accent/90 transition-colors">Overwrite</button>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -291,12 +340,15 @@
         startDate: '{{ next_monday.isoformat() }}',
         showRestIntervals: true,
         schedule: [],
-        exercises: {}
+        // Multi-week exercise structure: exercises[weekNumber][workoutIndex] = array of exercises
+        weeklyExercises: {}
     };
     
+    let currentWeek = 1;
     let modalMode = 'swap';
     let swapTarget = null;
     let addTarget = null;
+    let pendingCopyAction = null;
     
     // Drag state for schedule
     let draggedScheduleIndex = null;
@@ -328,11 +380,23 @@
         }
     }
     
+    function isCustomSplit() {
+        return cycleConfig.splitType === 'custom';
+    }
+    
     function getWorkoutStructure() {
         const split = cycleConfig.splitType;
         const days = cycleConfig.daysPerWeek;
         
-        if (split === 'full_body') {
+        if (split === 'custom') {
+            // Custom split: generic day names, all muscle groups available, no heavy/light
+            return Array.from({length: days}, (_, i) => ({
+                name: `Day ${i + 1}`,
+                heavyFocus: [],
+                muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'biceps', 'triceps', 'glutes', 'calves'],
+                isCustom: true
+            }));
+        } else if (split === 'full_body') {
             return Array.from({length: days}, (_, i) => ({
                 name: `Full Body ${String.fromCharCode(65 + i)}`,
                 heavyFocus: i % 2 === 0 ? ['compound'] : [],
@@ -344,13 +408,8 @@
                 heavyFocus: i < 2 ? [i % 2 === 0 ? 'upper' : 'lower'] : [],
                 muscles: i % 2 === 0 ? ['chest', 'back', 'shoulders', 'biceps', 'triceps'] : ['quads', 'hamstrings', 'glutes', 'calves']
             }));
-        } else if (split === 'custom') {
-            return Array.from({length: days}, (_, i) => ({
-                name: `Day ${i + 1}`,
-                heavyFocus: [],
-                muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'biceps', 'triceps', 'glutes', 'calves']
-            }));
         } else {
+            // PPL
             if (days <= 3) {
                 return [
                     { name: 'Push (Heavy) + Pull (Light)', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps', 'back', 'biceps'] },
@@ -448,45 +507,78 @@
             dayOfWeek: defaultDays[i],
             workoutName: workout.name,
             heavyFocus: workout.heavyFocus,
-            muscles: workout.muscles
+            muscles: workout.muscles,
+            isCustom: workout.isCustom || false
         }));
-        cycleConfig.exercises = {};
+        
+        // Reset weekly exercises
+        cycleConfig.weeklyExercises = {};
         
         renderScheduleGrid();
     }
     
     function renderScheduleGrid() {
         const grid = document.getElementById('schedule-grid');
+        const isCustom = isCustomSplit();
+        
+        // Update step 2 hint text
+        document.getElementById('step2-drag-hint').textContent = isCustom ? 'Name your workouts and assign days.' : 'Drag to reorder.';
         
         // Sort by day of week for display
         const sortedSchedule = [...cycleConfig.schedule].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
         
         grid.innerHTML = sortedSchedule.map((workout, displayIdx) => {
             const originalIdx = cycleConfig.schedule.indexOf(workout);
-            return `
-            <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all cursor-grab active:cursor-grabbing"
-                 draggable="true"
-                 data-schedule-idx="${originalIdx}"
-                 ondragstart="onScheduleDragStart(event, ${originalIdx})"
-                 ondragend="onScheduleDragEnd(event)"
-                 ondragover="onScheduleDragOver(event)"
-                 ondragleave="onScheduleDragLeave(event)"
-                 ondrop="onScheduleDrop(event, ${originalIdx})">
-                <div class="text-gray-600 drag-handle">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
-                    </svg>
+            
+            if (isCustom) {
+                // Custom split: editable name field
+                return `
+                <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all"
+                     data-schedule-idx="${originalIdx}">
+                    <div class="flex-1 flex items-center gap-3">
+                        <input type="text" 
+                               value="${workout.workoutName}"
+                               onchange="updateWorkoutName(${originalIdx}, this.value)"
+                               placeholder="Workout name"
+                               class="flex-1 bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
+                    </div>
+                    <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
+                            class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
+                        ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
+                    </select>
                 </div>
-                <div class="flex-1">
-                    <p class="font-medium text-gray-100">${workout.workoutName}</p>
-                    <p class="text-xs text-gray-500">${workout.muscles.slice(0, 3).join(', ')}</p>
+            `;
+            } else {
+                // Predefined split: draggable with fixed names
+                return `
+                <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all cursor-grab active:cursor-grabbing"
+                     draggable="true"
+                     data-schedule-idx="${originalIdx}"
+                     ondragstart="onScheduleDragStart(event, ${originalIdx})"
+                     ondragend="onScheduleDragEnd(event)"
+                     ondragover="onScheduleDragOver(event)"
+                     ondragleave="onScheduleDragLeave(event)"
+                     ondrop="onScheduleDrop(event, ${originalIdx})">
+                    <div class="text-gray-600 drag-handle">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <p class="font-medium text-gray-100">${workout.workoutName}</p>
+                        <p class="text-xs text-gray-500">${workout.muscles.slice(0, 3).join(', ')}</p>
+                    </div>
+                    <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
+                            class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
+                        ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
+                    </select>
                 </div>
-                <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
-                        class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
-                    ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
-                </select>
-            </div>
-        `}).join('');
+            `};
+        }).join('');
+    }
+    
+    function updateWorkoutName(scheduleIdx, newName) {
+        cycleConfig.schedule[scheduleIdx].workoutName = newName || `Day ${scheduleIdx + 1}`;
     }
     
     function updateWorkoutDay(scheduleIdx, newDay) {
@@ -543,8 +635,122 @@
         document.getElementById('progress-line-1').style.width = step > 1 ? '100%' : '0%';
         document.getElementById('progress-line-2').style.width = step > 2 ? '100%' : '0%';
         for (let i = 1; i <= 3; i++) document.getElementById(`step-${i}`).classList.toggle('hidden', i !== step);
-        if (step === 3) loadExercisesForReview();
+        if (step === 3) {
+            currentWeek = 1;
+            renderWeekTabs();
+            loadExercisesForWeek();
+        }
     }
+    
+    // ========================================
+    // WEEK NAVIGATION
+    // ========================================
+    
+    function renderWeekTabs() {
+        const container = document.getElementById('week-tabs');
+        let html = '';
+        for (let w = 1; w <= cycleConfig.lengthWeeks; w++) {
+            const isActive = w === currentWeek;
+            const hasExercises = cycleConfig.weeklyExercises[w] && 
+                Object.values(cycleConfig.weeklyExercises[w]).some(arr => arr && arr.length > 0);
+            html += `
+                <button onclick="switchToWeek(${w})" 
+                        class="week-tab px-3 py-1.5 text-sm rounded-lg border ${isActive ? 'active' : 'border-dark-600 text-gray-500'}">
+                    ${w}${hasExercises && !isActive ? ' •' : ''}
+                </button>
+            `;
+        }
+        container.innerHTML = html;
+    }
+    
+    function switchToWeek(weekNum) {
+        currentWeek = weekNum;
+        renderWeekTabs();
+        loadExercisesForWeek();
+    }
+    
+    // ========================================
+    // COPY WEEK FUNCTIONALITY
+    // ========================================
+    
+    function copyWeekTo(target) {
+        // Check if source week has exercises
+        const sourceExercises = cycleConfig.weeklyExercises[currentWeek];
+        if (!sourceExercises || Object.values(sourceExercises).every(arr => !arr || arr.length === 0)) {
+            alert('Current week has no exercises to copy.');
+            return;
+        }
+        
+        // Determine target weeks
+        let targetWeeks = [];
+        if (target === 'all') {
+            for (let w = 1; w <= cycleConfig.lengthWeeks; w++) {
+                if (w !== currentWeek) targetWeeks.push(w);
+            }
+        } else if (target === 'odd') {
+            for (let w = 1; w <= cycleConfig.lengthWeeks; w += 2) {
+                if (w !== currentWeek) targetWeeks.push(w);
+            }
+        } else if (target === 'even') {
+            for (let w = 2; w <= cycleConfig.lengthWeeks; w += 2) {
+                if (w !== currentWeek) targetWeeks.push(w);
+            }
+        }
+        
+        if (targetWeeks.length === 0) {
+            alert('No weeks to copy to.');
+            return;
+        }
+        
+        // Check if any target weeks have exercises
+        const weeksWithExercises = targetWeeks.filter(w => 
+            cycleConfig.weeklyExercises[w] && 
+            Object.values(cycleConfig.weeklyExercises[w]).some(arr => arr && arr.length > 0)
+        );
+        
+        if (weeksWithExercises.length > 0) {
+            // Show confirmation modal
+            pendingCopyAction = { sourceWeek: currentWeek, targetWeeks };
+            const message = `Week${weeksWithExercises.length > 1 ? 's' : ''} ${weeksWithExercises.join(', ')} already ha${weeksWithExercises.length > 1 ? 've' : 's'} exercises. Copying from Week ${currentWeek} will replace them.`;
+            document.getElementById('copy-modal-message').textContent = message;
+            document.getElementById('copy-modal').classList.remove('hidden');
+        } else {
+            // No confirmation needed, just copy
+            executeCopyWeek(currentWeek, targetWeeks);
+        }
+    }
+    
+    function closeCopyModal() {
+        document.getElementById('copy-modal').classList.add('hidden');
+        pendingCopyAction = null;
+    }
+    
+    function confirmCopyWeek() {
+        if (pendingCopyAction) {
+            executeCopyWeek(pendingCopyAction.sourceWeek, pendingCopyAction.targetWeeks);
+        }
+        closeCopyModal();
+    }
+    
+    function executeCopyWeek(sourceWeek, targetWeeks) {
+        const sourceExercises = cycleConfig.weeklyExercises[sourceWeek];
+        
+        for (const targetWeek of targetWeeks) {
+            // Deep copy the exercises
+            cycleConfig.weeklyExercises[targetWeek] = {};
+            for (const workoutIdx in sourceExercises) {
+                cycleConfig.weeklyExercises[targetWeek][workoutIdx] = 
+                    sourceExercises[workoutIdx].map(ex => ({...ex}));
+            }
+        }
+        
+        renderWeekTabs();
+        alert(`Copied Week ${sourceWeek} to Week${targetWeeks.length > 1 ? 's' : ''} ${targetWeeks.join(', ')}`);
+    }
+    
+    // ========================================
+    // EXERCISE LOADING & RENDERING
+    // ========================================
     
     // Map focus categories to muscle groups
     const FOCUS_TO_MUSCLES = {
@@ -566,6 +772,11 @@
     }
     
     function getDefaultExercisesForWorkout(workout) {
+        // For custom splits, return empty array (blank slate)
+        if (workout.isCustom || isCustomSplit()) {
+            return [];
+        }
+        
         const exercises = [];
         for (const muscle of workout.muscles || []) {
             const muscleExs = allExercises.filter(e => e.muscle_group === muscle && !exercises.find(ex => ex.id === e.id));
@@ -604,9 +815,15 @@
         return exercises.slice(0, 8);
     }
     
-    function loadExercisesForReview() {
+    function loadExercisesForWeek() {
         const container = document.getElementById('exercises-review');
         const structure = getWorkoutStructure();
+        const isCustom = isCustomSplit();
+        
+        // Initialize this week's exercises if not exists
+        if (!cycleConfig.weeklyExercises[currentWeek]) {
+            cycleConfig.weeklyExercises[currentWeek] = {};
+        }
         
         // Sort schedule by day of week for display
         const sortedSchedule = cycleConfig.schedule
@@ -617,10 +834,15 @@
             const wIdx = scheduleItem.originalIdx;
             const workout = structure[scheduleItem.workoutIndex] || { name: scheduleItem.workoutName, muscles: scheduleItem.muscles };
             
-            if (!cycleConfig.exercises[wIdx]) {
-                cycleConfig.exercises[wIdx] = getDefaultExercisesForWorkout(workout);
+            // Initialize exercises for this workout if not exists
+            if (!cycleConfig.weeklyExercises[currentWeek][wIdx]) {
+                cycleConfig.weeklyExercises[currentWeek][wIdx] = getDefaultExercisesForWorkout({
+                    ...workout,
+                    heavyFocus: scheduleItem.heavyFocus,
+                    isCustom: scheduleItem.isCustom
+                });
             }
-            const exs = cycleConfig.exercises[wIdx];
+            const exs = cycleConfig.weeklyExercises[currentWeek][wIdx];
             
             return `
                 <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden" data-workout-idx="${wIdx}">
@@ -632,10 +854,18 @@
                         <button onclick="openModal('add', ${wIdx})" class="px-3 py-1 text-xs bg-dark-600 text-accent rounded-lg hover:bg-dark-500">+ Add</button>
                     </div>
                     <div class="p-3 space-y-2 exercise-list" data-workout-idx="${wIdx}">
-                        ${exs.map((ex, eIdx) => {
-                            const restTime = ex.is_heavy ? (ex.rest_heavy || 180) : (ex.rest_light || 60);
-                            const sets = ex.is_heavy ? (ex.sets_heavy || 4) : (ex.sets_light || 3);
-                            const reps = ex.is_heavy ? (ex.rep_range_heavy || '6-8') : (ex.rep_range_light || '10-12');
+                        ${exs.length === 0 ? `
+                            <div class="text-center py-6 text-gray-500">
+                                <p class="text-sm">No exercises yet</p>
+                                <p class="text-xs mt-1">Click "+ Add" to add exercises</p>
+                            </div>
+                        ` : exs.map((ex, eIdx) => {
+                            // For custom splits, no heavy/light distinction
+                            const showHeavyLight = !isCustom && !scheduleItem.isCustom;
+                            const restTime = showHeavyLight ? (ex.is_heavy ? (ex.rest_heavy || 180) : (ex.rest_light || 60)) : (ex.rest_light || 60);
+                            const sets = showHeavyLight ? (ex.is_heavy ? (ex.sets_heavy || 4) : (ex.sets_light || 3)) : (ex.sets || ex.sets_light || 3);
+                            const reps = showHeavyLight ? (ex.is_heavy ? (ex.rep_range_heavy || '6-8') : (ex.rep_range_light || '10-12')) : (ex.rep_range || ex.rep_range_light || '10-12');
+                            
                             return `
                             <div class="exercise-tile p-3 bg-dark-700 rounded-lg group border border-transparent transition-all"
                                  draggable="true"
@@ -692,7 +922,7 @@
                                         <span class="rest-custom-label text-xs text-gray-500 ${[15,30,60,120,180].includes(restTime) ? 'hidden' : ''}">s</span>
                                     </div>
                                     ` : ''}
-                                    <span class="ml-auto text-xs ${ex.is_heavy ? 'text-accent' : 'text-gray-500'}">${ex.is_heavy ? 'Heavy' : 'Light'}</span>
+                                    ${showHeavyLight ? `<span class="ml-auto text-xs ${ex.is_heavy ? 'text-accent' : 'text-gray-500'}">${ex.is_heavy ? 'Heavy' : 'Light'}</span>` : ''}
                                 </div>
                             </div>
                         `}).join('')}
@@ -744,18 +974,18 @@
         if (wIdx === null || wIdx !== targetWIdx || eIdx === targetEIdx) return;
         
         // Reorder exercises
-        const exercises = cycleConfig.exercises[wIdx];
+        const exercises = cycleConfig.weeklyExercises[currentWeek][wIdx];
         const [moved] = exercises.splice(eIdx, 1);
         exercises.splice(targetEIdx, 0, moved);
         
-        loadExercisesForReview();
+        loadExercisesForWeek();
     }
     
     function openModal(mode, wIdx, eIdx = null) {
         modalMode = mode;
         if (mode === 'swap') {
             swapTarget = { wIdx, eIdx };
-            const ex = cycleConfig.exercises[wIdx][eIdx];
+            const ex = cycleConfig.weeklyExercises[currentWeek][wIdx][eIdx];
             document.getElementById('modal-title').textContent = 'Swap Exercise';
             document.getElementById('modal-subtitle').textContent = `Replace ${ex.name}`;
             document.getElementById('muscle-filter').value = ex.muscle_group;
@@ -778,10 +1008,14 @@
     }
     
     function updateExerciseSets(wIdx, eIdx, value) {
-        const ex = cycleConfig.exercises[wIdx][eIdx];
+        const ex = cycleConfig.weeklyExercises[currentWeek][wIdx][eIdx];
         const sets = parseInt(value) || 3;
-        // Update both heavy and light sets based on is_heavy flag
-        if (ex.is_heavy) {
+        // For custom splits, just set a single 'sets' value
+        if (isCustomSplit()) {
+            ex.sets = sets;
+            ex.sets_light = sets;
+            ex.sets_heavy = sets;
+        } else if (ex.is_heavy) {
             ex.sets_heavy = sets;
         } else {
             ex.sets_light = sets;
@@ -789,10 +1023,14 @@
     }
     
     function updateExerciseReps(wIdx, eIdx, value) {
-        const ex = cycleConfig.exercises[wIdx][eIdx];
+        const ex = cycleConfig.weeklyExercises[currentWeek][wIdx][eIdx];
         const reps = value.trim() || '8-12';
-        // Update both heavy and light reps based on is_heavy flag
-        if (ex.is_heavy) {
+        // For custom splits, just set a single 'rep_range' value
+        if (isCustomSplit()) {
+            ex.rep_range = reps;
+            ex.rep_range_light = reps;
+            ex.rep_range_heavy = reps;
+        } else if (ex.is_heavy) {
             ex.rep_range_heavy = reps;
         } else {
             ex.rep_range_light = reps;
@@ -814,7 +1052,7 @@
             customInput?.classList.add('hidden');
             customLabel?.classList.add('hidden');
             
-            const ex = cycleConfig.exercises[wIdx][eIdx];
+            const ex = cycleConfig.weeklyExercises[currentWeek][wIdx][eIdx];
             const seconds = parseInt(value) || 60;
             ex.rest_heavy = seconds;
             ex.rest_light = seconds;
@@ -822,7 +1060,7 @@
     }
     
     function updateExerciseRestCustom(wIdx, eIdx, value) {
-        const ex = cycleConfig.exercises[wIdx][eIdx];
+        const ex = cycleConfig.weeklyExercises[currentWeek][wIdx][eIdx];
         const seconds = parseInt(value) || 60;
         ex.rest_heavy = seconds;
         ex.rest_light = seconds;
@@ -845,6 +1083,7 @@
     }
     
     function selectExercise(id, name, muscle, equipment, isCompound = false) {
+        const isCustom = isCustomSplit();
         const data = { 
             id, 
             name, 
@@ -852,23 +1091,30 @@
             equipment, 
             is_heavy: false,
             is_compound: isCompound,
+            sets: 3,
             sets_heavy: isCompound ? 4 : 3,
             sets_light: 3,
+            rep_range: '8-12',
             rep_range_heavy: isCompound ? '6-8' : '8-10',
             rep_range_light: '10-12',
             rest_heavy: isCompound ? 180 : 60,
             rest_light: 60
         };
-        if (modalMode === 'swap' && swapTarget) cycleConfig.exercises[swapTarget.wIdx][swapTarget.eIdx] = data;
-        else if (modalMode === 'add' && addTarget) cycleConfig.exercises[addTarget.wIdx].push(data);
+        if (modalMode === 'swap' && swapTarget) {
+            cycleConfig.weeklyExercises[currentWeek][swapTarget.wIdx][swapTarget.eIdx] = data;
+        } else if (modalMode === 'add' && addTarget) {
+            if (!cycleConfig.weeklyExercises[currentWeek][addTarget.wIdx]) {
+                cycleConfig.weeklyExercises[currentWeek][addTarget.wIdx] = [];
+            }
+            cycleConfig.weeklyExercises[currentWeek][addTarget.wIdx].push(data);
+        }
         closeModal();
-        loadExercisesForReview();
+        loadExercisesForWeek();
     }
     
     function removeExercise(wIdx, eIdx) {
-        if (cycleConfig.exercises[wIdx].length <= 1) { alert('Need at least one exercise'); return; }
-        cycleConfig.exercises[wIdx].splice(eIdx, 1);
-        loadExercisesForReview();
+        cycleConfig.weeklyExercises[currentWeek][wIdx].splice(eIdx, 1);
+        loadExercisesForWeek();
     }
     
     function toggleAddForm() {
@@ -993,26 +1239,54 @@
         btn.textContent = 'Creating...';
         
         try {
-            // Build workout_slots from schedule
+            // Build workout_slots from schedule, including per-week exercises
             const workout_slots = cycleConfig.schedule.map((s, idx) => ({
                 day_of_week: s.dayOfWeek,
                 template_id: null,
                 workout_name: s.workoutName,
                 is_heavy_focus: s.heavyFocus,
                 order_index: idx,
-                exercises: (cycleConfig.exercises[idx] || []).map((ex, exIdx) => ({
+                // For the API, we'll send Week 1's exercises as the base
+                // The backend will need to handle per-week exercise variations
+                exercises: (cycleConfig.weeklyExercises[1] && cycleConfig.weeklyExercises[1][idx] || []).map((ex, exIdx) => ({
                     exercise_id: ex.id,
                     exercise_name: ex.name,
                     muscle_group: ex.muscle_group,
                     is_heavy: ex.is_heavy || false,
+                    sets: ex.sets || ex.sets_light || 3,
                     sets_heavy: ex.sets_heavy || 4,
                     sets_light: ex.sets_light || 3,
+                    rep_range: ex.rep_range || ex.rep_range_light || '10-12',
                     rep_range_heavy: ex.rep_range_heavy || '6-8',
                     rep_range_light: ex.rep_range_light || '10-12',
                     rest_heavy: ex.rest_heavy || 180,
                     rest_light: ex.rest_light || 60
                 }))
             }));
+            
+            // Also include the full weekly exercise configuration
+            const weekly_exercises = {};
+            for (let week = 1; week <= cycleConfig.lengthWeeks; week++) {
+                if (cycleConfig.weeklyExercises[week]) {
+                    weekly_exercises[week] = {};
+                    for (const wIdx in cycleConfig.weeklyExercises[week]) {
+                        weekly_exercises[week][wIdx] = cycleConfig.weeklyExercises[week][wIdx].map(ex => ({
+                            exercise_id: ex.id,
+                            exercise_name: ex.name,
+                            muscle_group: ex.muscle_group,
+                            is_heavy: ex.is_heavy || false,
+                            sets: ex.sets || ex.sets_light || 3,
+                            sets_heavy: ex.sets_heavy || 4,
+                            sets_light: ex.sets_light || 3,
+                            rep_range: ex.rep_range || ex.rep_range_light || '10-12',
+                            rep_range_heavy: ex.rep_range_heavy || '6-8',
+                            rep_range_light: ex.rep_range_light || '10-12',
+                            rest_heavy: ex.rest_heavy || 180,
+                            rest_light: ex.rest_light || 60
+                        }));
+                    }
+                }
+            }
             
             const response = await fetch('/api/cycle/create', {
                 method: 'POST',
@@ -1022,7 +1296,8 @@
                     split_type: cycleConfig.splitType,
                     length_weeks: cycleConfig.lengthWeeks,
                     start_date: cycleConfig.startDate,
-                    workout_slots: workout_slots
+                    workout_slots: workout_slots,
+                    weekly_exercises: weekly_exercises
                 })
             });
             

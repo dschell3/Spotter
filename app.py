@@ -529,21 +529,24 @@ def workout_from_schedule(scheduled_id):
         
         cycle_id = scheduled_workout['cycle_id']
         slot_id = slot['id']
+        week_number = scheduled_workout.get('week_number', 1)
         
-        # Get exercises for this slot
-        exercises_response = supabase.table('cycle_exercises')\
-            .select('*, exercises(*)')\
-            .eq('cycle_workout_slot_id', slot_id)\
-            .order('order_index')\
-            .execute()
+        # Get cycle to determine rotation_weeks
+        cycle = db_cycles.get_cycle_by_id(cycle_id)
+        rotation_weeks = cycle.get('rotation_weeks', 1) if cycle else 1
         
-        cycle_exercises = exercises_response.data or []
+        # Get exercises for this slot and week (with fallback to all-weeks exercises)
+        cycle_exercises = db_cycles.get_cycle_exercises_for_week(
+            cycle_id=cycle_id,
+            slot_id=slot_id,
+            week_number=week_number
+        )
         
         # Build the day data structure that workout.html expects
         day = {
             'id': slot_id,
             'name': slot.get('workout_name', 'Workout'),
-            'day_number': scheduled_workout.get('week_number', 1),
+            'day_number': week_number,
             'focus': slot.get('is_heavy_focus', []),
             'exercises': []
         }
@@ -552,10 +555,9 @@ def workout_from_schedule(scheduled_id):
         heavy_focuses = slot.get('is_heavy_focus', [])
         
         for ce in cycle_exercises:
-            exercise_data = ce.get('exercises', {})
+            exercise_data = ce.get('exercises', {}) or {}
             
             # Determine if this exercise should use heavy or light settings
-            # An exercise is heavy if its muscle group's focus is in the heavy_focuses list
             is_heavy = ce.get('is_heavy', False)
             
             # Use the appropriate sets/reps based on heavy vs light
@@ -588,14 +590,13 @@ def workout_from_schedule(scheduled_id):
             return redirect(url_for('plan'))
         
         # Get cycle info for display
-        cycle = db_cycles.get_cycle_by_id(cycle_id)
         total_days = cycle.get('length_weeks', 6) * 3  # Approximate
         
         return render_template('workout_cycle.html',
                              day=day,
                              scheduled_workout=scheduled_workout,
                              cycle=cycle,
-                             day_number=scheduled_workout.get('week_number', 1),
+                             day_number=week_number,
                              total_days=total_days,
                              user=user)
         
@@ -672,7 +673,6 @@ def api_save_cycle_workout():
     scheduled_id = data.get('scheduled_id')
     
     # Create the workout record
-    # Note: Pass None for template_id since cycle workouts use cycle_workout_slots, not templates
     workout = db.create_user_workout(
         user['id'],
         None,  # template_id - not used for cycle-based workouts
@@ -921,7 +921,7 @@ Focus on:
 def api_suggest_video(exercise_id):
     """Search YouTube for a short demo video for an exercise."""
     exercise_name = request.args.get('name', '')
-    exclude_ids = [x for x in request.args.get('exclude', '').split(',') if x]  # List of video IDs to exclude
+    exclude_ids = [x for x in request.args.get('exclude', '').split(',') if x]
     
     if not exercise_name:
         return jsonify({'error': 'Exercise name required'}), 400
@@ -943,8 +943,8 @@ def api_suggest_video(exercise_id):
                 'part': 'snippet',
                 'q': search_query,
                 'type': 'video',
-                'videoDuration': 'short',  # Under 4 minutes
-                'maxResults': 10,  # Get more results to allow for exclusions
+                'videoDuration': 'short',
+                'maxResults': 10,
                 'order': 'relevance',
                 'safeSearch': 'strict',
                 'key': youtube_api_key
@@ -981,17 +981,14 @@ def api_suggest_video(exercise_id):
         
         if details_response.status_code == 200:
             details_data = details_response.json()
-            
-            # Filter out excluded videos from details too
             videos = [v for v in details_data.get('items', []) if v['id'] not in exclude_ids]
             
             # Find the first video under 30 seconds
             for video in videos:
                 duration = video['contentDetails']['duration']
-                # Parse ISO 8601 duration (e.g., PT1M30S, PT45S, PT2M)
                 seconds = parse_youtube_duration(duration)
                 
-                if seconds <= 30:  # Under 30 seconds
+                if seconds <= 30:
                     video_id = video['id']
                     return jsonify({
                         'video': {
@@ -1052,7 +1049,6 @@ def parse_youtube_duration(duration: str) -> int:
     """Parse ISO 8601 duration (PT1M30S) to seconds."""
     import re
     
-    # Handle PT format
     match = re.match(r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?', duration)
     if match:
         hours = int(match.group(1) or 0)
@@ -1094,7 +1090,7 @@ def api_save_video(exercise_id):
 
 @app.route('/api/exercises/<exercise_id>/clear-video', methods=['POST'])
 def api_clear_video(exercise_id):
-    """Clear video URL from an exercise (to search again)."""
+    """Clear video URL from an exercise."""
     user = get_current_user()
     if not user:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -1141,11 +1137,7 @@ def api_debug_cycles():
     
     try:
         supabase = db.get_supabase_client()
-        
-        # Get all cycles for this user
         all_cycles = supabase.table('cycles').select('*').eq('user_id', user['id']).execute()
-        
-        # Get active cycle specifically
         active = db_cycles.get_active_cycle(user['id'])
         
         return jsonify({
@@ -1165,7 +1157,6 @@ def api_schedule_preview():
     split_type = request.args.get('split', 'ppl')
     days_per_week = request.args.get('days', 3, type=int)
     
-    # Validate inputs
     if days_per_week < 2 or days_per_week > 6:
         return jsonify({'error': 'Days per week must be between 2 and 6'}), 400
     
@@ -1191,7 +1182,6 @@ def api_profile_preferred_days():
     if profile and profile.get('preferred_days'):
         return jsonify({'preferred_days': profile['preferred_days']})
     
-    # Default to Mon, Wed, Fri
     return jsonify({'preferred_days': ['monday', 'wednesday', 'friday']})
 
 
@@ -1212,7 +1202,7 @@ def api_profile_settings():
     try:
         result = db_cycles.update_profile_training_settings(
             user_id=user['id'],
-            email=user.get('email'),  # Pass email for profile creation
+            email=user.get('email'),
             split_type=data.get('split_type'),
             days_per_week=data.get('days_per_week'),
             cycle_length_weeks=data.get('cycle_length_weeks'),
@@ -1238,7 +1228,7 @@ def api_profile_settings():
 
 @app.route('/api/cycle/create', methods=['POST'])
 def api_create_cycle():
-    """Create a new training cycle."""
+    """Create a new training cycle with support for per-week exercises."""
     user = get_current_user()
     if not user:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -1249,19 +1239,27 @@ def api_create_cycle():
         # Parse start date
         start_date = datetime.strptime(data['start_date'], '%Y-%m-%d').date()
         
-        # Create cycle
-        cycle = db_cycles.create_cycle(
-            user_id=user['id'],
-            name=data.get('name', f"Cycle starting {start_date}"),
-            start_date=start_date,
-            length_weeks=data.get('length_weeks', 6),
-            split_type=data.get('split_type', 'ppl_3day')
-        )
+        # Get rotation_weeks from the schedule (for rotating splits)
+        rotation_weeks = data.get('rotation_weeks', 1)
         
-        if not cycle:
+        # Create cycle with rotation_weeks
+        supabase = db.get_supabase_client()
+        cycle_response = supabase.table('cycles').insert({
+            'user_id': user['id'],
+            'name': data.get('name', f"Cycle starting {start_date}"),
+            'start_date': start_date.isoformat(),
+            'length_weeks': data.get('length_weeks', 6),
+            'split_type': data.get('split_type', 'ppl'),
+            'status': 'planning',
+            'rotation_weeks': rotation_weeks
+        }).execute()
+        
+        if not cycle_response.data:
             return jsonify({'error': 'Failed to create cycle'}), 500
         
-        # Handle both old format (schedule + exercises) and new format (workout_slots with nested exercises)
+        cycle = cycle_response.data[0]
+        
+        # Handle workout_slots with nested exercises and week_pattern
         workout_slots = data.get('workout_slots', [])
         
         # Create workout slots
@@ -1273,12 +1271,13 @@ def api_create_cycle():
                 template_id=slot_data.get('template_id'),
                 workout_name=slot_data.get('workout_name', slot_data.get('workoutName', f'Workout {i+1}')),
                 is_heavy_focus=slot_data.get('is_heavy_focus', slot_data.get('heavyFocus', [])),
-                order_index=slot_data.get('order_index', i)
+                order_index=slot_data.get('order_index', i),
+                week_pattern=slot_data.get('week_pattern')  # NEW: support week_pattern
             )
             if slot:
                 created_slots.append(slot)
                 
-                # Create exercises for this slot (nested in workout_slots)
+                # Create exercises for this slot from nested structure
                 slot_exercises = slot_data.get('exercises', [])
                 for j, ex_data in enumerate(slot_exercises):
                     db_cycles.create_cycle_exercise(
@@ -1294,17 +1293,65 @@ def api_create_cycle():
                         rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
                         rep_range_light=ex_data.get('rep_range_light', '10-12'),
                         rest_heavy=ex_data.get('rest_heavy', 180),
-                        rest_light=ex_data.get('rest_light', 90)
+                        rest_light=ex_data.get('rest_light', 90),
+                        week_number=None  # Base exercises apply to all weeks
                     )
         
-        # Generate the schedule for all weeks
+        # Handle weekly_exercises structure (per-week customizations)
+        weekly_exercises = data.get('weekly_exercises', {})
+        
+        if weekly_exercises:
+            # weekly_exercises format: { "1": { "0": [...], "1": [...] }, "2": { ... } }
+            # Keys are week numbers (1-indexed), values are dicts of workout_index -> exercises
+            
+            for week_num_str, week_workouts in weekly_exercises.items():
+                week_num = int(week_num_str)
+                
+                for workout_idx_str, exercises in week_workouts.items():
+                    workout_idx = int(workout_idx_str)
+                    
+                    # Find the corresponding slot
+                    if workout_idx < len(created_slots):
+                        slot = created_slots[workout_idx]
+                        
+                        # Check if these exercises differ from the base (week 1) exercises
+                        # If week_num > 1 and exercises differ, store them with week_number
+                        if week_num > 1:
+                            # Delete any existing week-specific exercises for this slot/week
+                            db_cycles.delete_cycle_exercises_for_week(
+                                cycle_id=cycle['id'],
+                                slot_id=slot['id'],
+                                week_number=week_num
+                            )
+                            
+                            # Create week-specific exercises
+                            for j, ex_data in enumerate(exercises):
+                                db_cycles.create_cycle_exercise(
+                                    cycle_id=cycle['id'],
+                                    slot_id=slot['id'],
+                                    exercise_id=ex_data.get('exercise_id', ex_data.get('id')),
+                                    exercise_name=ex_data.get('exercise_name', ex_data.get('name')),
+                                    muscle_group=ex_data.get('muscle_group', ''),
+                                    is_heavy=ex_data.get('is_heavy', False),
+                                    order_index=j,
+                                    sets_heavy=ex_data.get('sets_heavy', 4),
+                                    sets_light=ex_data.get('sets_light', 3),
+                                    rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
+                                    rep_range_light=ex_data.get('rep_range_light', '10-12'),
+                                    rest_heavy=ex_data.get('rest_heavy', 180),
+                                    rest_light=ex_data.get('rest_light', 90),
+                                    week_number=week_num
+                                )
+        
+        # Generate the schedule for all weeks (with rotation support)
         if created_slots:
             db_cycles.generate_cycle_schedule(
                 user_id=user['id'],
                 cycle_id=cycle['id'],
                 start_date=start_date,
                 length_weeks=data.get('length_weeks', 6),
-                workout_slots=created_slots
+                workout_slots=created_slots,
+                rotation_weeks=rotation_weeks
             )
         
         # Activate the cycle immediately
@@ -1337,12 +1384,15 @@ def api_activate_cycle(cycle_id):
         
         # Generate schedule
         start_date = datetime.strptime(cycle['start_date'], '%Y-%m-%d').date()
+        rotation_weeks = cycle.get('rotation_weeks', 1)
+        
         db_cycles.generate_cycle_schedule(
             user_id=user['id'],
             cycle_id=cycle_id,
             start_date=start_date,
             length_weeks=cycle['length_weeks'],
-            workout_slots=slots
+            workout_slots=slots,
+            rotation_weeks=rotation_weeks
         )
         
         # Activate cycle
@@ -1379,16 +1429,9 @@ def api_delete_cycle(cycle_id):
         supabase = db.get_supabase_client()
         
         # Delete in order due to foreign keys
-        # 1. Delete scheduled workouts
         supabase.table('scheduled_workouts').delete().eq('cycle_id', cycle_id).execute()
-        
-        # 2. Delete cycle exercises
         supabase.table('cycle_exercises').delete().eq('cycle_id', cycle_id).execute()
-        
-        # 3. Delete cycle workout slots
         supabase.table('cycle_workout_slots').delete().eq('cycle_id', cycle_id).execute()
-        
-        # 4. Delete the cycle itself
         supabase.table('cycles').delete().eq('id', cycle_id).execute()
         
         return jsonify({'success': True})
@@ -1417,7 +1460,7 @@ def api_reschedule_workout(scheduled_id):
 
 @app.route('/api/debug/clean', methods=['POST'])
 def api_debug_clean():
-    """Clean all cycle data for the current user. USE WITH CAUTION."""
+    """Clean all cycle data for the current user."""
     user = get_current_user()
     if not user:
         return jsonify({'error': 'Not authenticated'}), 401
@@ -1425,28 +1468,23 @@ def api_debug_clean():
     try:
         supabase = db.get_supabase_client()
         
-        # Get all cycles for user
         cycles_resp = supabase.table('cycles').select('id').eq('user_id', user['id']).execute()
         cycle_ids = [c['id'] for c in (cycles_resp.data or [])]
         
         deleted = {'scheduled_workouts': 0, 'cycle_exercises': 0, 'cycle_workout_slots': 0, 'cycles': 0}
         
         if cycle_ids:
-            # Delete scheduled workouts
             resp = supabase.table('scheduled_workouts').delete().eq('user_id', user['id']).execute()
             deleted['scheduled_workouts'] = len(resp.data) if resp.data else 0
             
-            # Delete cycle exercises
             for cid in cycle_ids:
                 resp = supabase.table('cycle_exercises').delete().eq('cycle_id', cid).execute()
                 deleted['cycle_exercises'] += len(resp.data) if resp.data else 0
             
-            # Delete cycle workout slots
             for cid in cycle_ids:
                 resp = supabase.table('cycle_workout_slots').delete().eq('cycle_id', cid).execute()
                 deleted['cycle_workout_slots'] += len(resp.data) if resp.data else 0
             
-            # Delete cycles
             resp = supabase.table('cycles').delete().eq('user_id', user['id']).execute()
             deleted['cycles'] = len(resp.data) if resp.data else 0
         
@@ -1464,19 +1502,12 @@ def api_debug_schedule():
         return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        # Get active cycle
         cycle = db_cycles.get_active_cycle(user['id'])
-        
-        # Get all data for debugging
         supabase = db.get_supabase_client()
         
-        # All cycles for user
         cycles_resp = supabase.table('cycles').select('*').eq('user_id', user['id']).execute()
-        
-        # All scheduled workouts for user
         scheduled_resp = supabase.table('scheduled_workouts').select('*').eq('user_id', user['id']).execute()
         
-        # All workout slots for active cycle
         slots_resp = None
         if cycle:
             slots_resp = supabase.table('cycle_workout_slots').select('*').eq('cycle_id', cycle['id']).execute()

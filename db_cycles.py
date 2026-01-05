@@ -1,5 +1,6 @@
 """
 Database functions for cycles and planning (Phase 3)
+Now supports week_pattern for rotating splits and week_number for per-week exercises.
 """
 from datetime import date, datetime, timedelta
 from db import get_supabase_client
@@ -122,6 +123,7 @@ def get_cycle_workout_slots(cycle_id: str):
     response = supabase.table('cycle_workout_slots')\
         .select('*')\
         .eq('cycle_id', cycle_id)\
+        .order('week_pattern', nullsfirst=True)\
         .order('day_of_week')\
         .order('order_index')\
         .execute()
@@ -129,19 +131,70 @@ def get_cycle_workout_slots(cycle_id: str):
     return response.data
 
 
+def get_cycle_workout_slots_for_week(cycle_id: str, week_number: int, rotation_weeks: int = 1):
+    """
+    Get workout slots applicable to a specific week number.
+    
+    For rotating splits, filters by week_pattern:
+    - 2-week rotation: odd/even
+    - 3-week rotation: week_mod_0, week_mod_1, week_mod_2
+    """
+    supabase = get_supabase_client()
+    
+    if rotation_weeks == 1:
+        # No rotation - all slots apply
+        response = supabase.table('cycle_workout_slots')\
+            .select('*')\
+            .eq('cycle_id', cycle_id)\
+            .order('day_of_week')\
+            .order('order_index')\
+            .execute()
+    elif rotation_weeks == 2:
+        # 2-week rotation (odd/even)
+        pattern = 'odd' if week_number % 2 == 1 else 'even'
+        response = supabase.table('cycle_workout_slots')\
+            .select('*')\
+            .eq('cycle_id', cycle_id)\
+            .or_(f'week_pattern.is.null,week_pattern.eq.{pattern}')\
+            .order('day_of_week')\
+            .order('order_index')\
+            .execute()
+    else:
+        # 3+ week rotation
+        mod = week_number % rotation_weeks
+        if mod == 0:
+            mod = rotation_weeks  # Week 3 in 3-week rotation = mod_0, but we store as week_mod_0
+        pattern = f'week_mod_{mod % rotation_weeks}'
+        response = supabase.table('cycle_workout_slots')\
+            .select('*')\
+            .eq('cycle_id', cycle_id)\
+            .or_(f'week_pattern.is.null,week_pattern.eq.{pattern}')\
+            .order('day_of_week')\
+            .order('order_index')\
+            .execute()
+    
+    return response.data
+
+
 def create_cycle_workout_slot(cycle_id: str, day_of_week: int, template_id: str,
-                               workout_name: str, is_heavy_focus: list, order_index: int):
+                               workout_name: str, is_heavy_focus: list, order_index: int,
+                               week_pattern: str = None):
     """Create a workout slot for a cycle."""
     supabase = get_supabase_client()
     
-    response = supabase.table('cycle_workout_slots').insert({
+    data = {
         'cycle_id': cycle_id,
         'day_of_week': day_of_week,
         'template_id': template_id,
         'workout_name': workout_name,
         'is_heavy_focus': is_heavy_focus,
         'order_index': order_index
-    }).execute()
+    }
+    
+    if week_pattern:
+        data['week_pattern'] = week_pattern
+    
+    response = supabase.table('cycle_workout_slots').insert(data).execute()
     
     return response.data[0] if response.data else None
 
@@ -162,8 +215,16 @@ def update_cycle_workout_slot(slot_id: str, day_of_week: int):
 # CYCLE EXERCISES
 # ============================================
 
-def get_cycle_exercises(cycle_id: str, slot_id: str = None):
-    """Get exercises for a cycle, optionally filtered by slot."""
+def get_cycle_exercises(cycle_id: str, slot_id: str = None, week_number: int = None):
+    """
+    Get exercises for a cycle, optionally filtered by slot and/or week.
+    
+    If week_number is provided, returns exercises where:
+    - week_number matches exactly, OR
+    - week_number is NULL (applies to all weeks)
+    
+    Week-specific exercises take precedence over NULL (all-weeks) exercises.
+    """
     supabase = get_supabase_client()
     
     query = supabase.table('cycle_exercises')\
@@ -174,19 +235,77 @@ def get_cycle_exercises(cycle_id: str, slot_id: str = None):
     if slot_id:
         query = query.eq('cycle_workout_slot_id', slot_id)
     
+    if week_number is not None:
+        # Get exercises for this specific week OR exercises that apply to all weeks
+        query = query.or_(f'week_number.is.null,week_number.eq.{week_number}')
+    
     response = query.execute()
-    return response.data
+    exercises = response.data or []
+    
+    # If we have week-specific filtering, deduplicate by preferring week-specific over NULL
+    if week_number is not None and exercises:
+        # Group by (slot_id, order_index) and prefer week-specific
+        seen = {}
+        for ex in exercises:
+            key = (ex.get('cycle_workout_slot_id'), ex.get('order_index'))
+            existing = seen.get(key)
+            if existing is None:
+                seen[key] = ex
+            elif ex.get('week_number') is not None and existing.get('week_number') is None:
+                # Prefer week-specific over generic
+                seen[key] = ex
+        exercises = list(seen.values())
+        exercises.sort(key=lambda x: x.get('order_index', 0))
+    
+    return exercises
+
+
+def get_cycle_exercises_for_week(cycle_id: str, slot_id: str, week_number: int):
+    """
+    Get exercises for a specific workout slot and week.
+    Returns week-specific exercises if they exist, otherwise falls back to all-weeks exercises.
+    """
+    supabase = get_supabase_client()
+    
+    # First try to get week-specific exercises
+    response = supabase.table('cycle_exercises')\
+        .select('*, exercises(*)')\
+        .eq('cycle_id', cycle_id)\
+        .eq('cycle_workout_slot_id', slot_id)\
+        .eq('week_number', week_number)\
+        .order('order_index')\
+        .execute()
+    
+    if response.data:
+        return response.data
+    
+    # Fall back to all-weeks exercises (week_number is NULL)
+    response = supabase.table('cycle_exercises')\
+        .select('*, exercises(*)')\
+        .eq('cycle_id', cycle_id)\
+        .eq('cycle_workout_slot_id', slot_id)\
+        .is_('week_number', 'null')\
+        .order('order_index')\
+        .execute()
+    
+    return response.data or []
 
 
 def create_cycle_exercise(cycle_id: str, slot_id: str, exercise_id: str, 
                           exercise_name: str, muscle_group: str, is_heavy: bool,
                           order_index: int, sets_heavy: int = 4, sets_light: int = 3,
                           rep_range_heavy: str = '6-8', rep_range_light: str = '10-12',
-                          rest_heavy: int = 180, rest_light: int = 90):
-    """Add an exercise to a cycle."""
+                          rest_heavy: int = 180, rest_light: int = 90,
+                          week_number: int = None):
+    """
+    Add an exercise to a cycle.
+    
+    If week_number is None, the exercise applies to all weeks.
+    If week_number is specified (1-8), the exercise only applies to that week.
+    """
     supabase = get_supabase_client()
     
-    response = supabase.table('cycle_exercises').insert({
+    data = {
         'cycle_id': cycle_id,
         'cycle_workout_slot_id': slot_id,
         'exercise_id': exercise_id,
@@ -200,7 +319,12 @@ def create_cycle_exercise(cycle_id: str, slot_id: str, exercise_id: str,
         'rep_range_light': rep_range_light,
         'rest_seconds_heavy': rest_heavy,
         'rest_seconds_light': rest_light
-    }).execute()
+    }
+    
+    if week_number is not None:
+        data['week_number'] = week_number
+    
+    response = supabase.table('cycle_exercises').insert(data).execute()
     
     return response.data[0] if response.data else None
 
@@ -224,6 +348,20 @@ def delete_cycle_exercise(exercise_id: str):
     response = supabase.table('cycle_exercises')\
         .delete()\
         .eq('id', exercise_id)\
+        .execute()
+    
+    return response.data
+
+
+def delete_cycle_exercises_for_week(cycle_id: str, slot_id: str, week_number: int):
+    """Delete all exercises for a specific slot and week."""
+    supabase = get_supabase_client()
+    
+    response = supabase.table('cycle_exercises')\
+        .delete()\
+        .eq('cycle_id', cycle_id)\
+        .eq('cycle_workout_slot_id', slot_id)\
+        .eq('week_number', week_number)\
         .execute()
     
     return response.data
@@ -347,8 +485,12 @@ def skip_scheduled_workout(scheduled_id: str, notes: str = None):
 
 
 def generate_cycle_schedule(user_id: str, cycle_id: str, start_date: date, 
-                            length_weeks: int, workout_slots: list):
-    """Generate all scheduled workouts for a cycle."""
+                            length_weeks: int, workout_slots: list, rotation_weeks: int = 1):
+    """
+    Generate all scheduled workouts for a cycle.
+    
+    For rotating splits, only schedules workouts from slots that match the week's pattern.
+    """
     supabase = get_supabase_client()
     
     scheduled = []
@@ -356,7 +498,23 @@ def generate_cycle_schedule(user_id: str, cycle_id: str, start_date: date,
     for week_num in range(1, length_weeks + 1):
         week_start = start_date + timedelta(weeks=week_num - 1)
         
+        # Determine which week_pattern applies to this week
+        if rotation_weeks == 1:
+            applicable_pattern = None
+        elif rotation_weeks == 2:
+            applicable_pattern = 'odd' if week_num % 2 == 1 else 'even'
+        else:
+            mod = week_num % rotation_weeks
+            applicable_pattern = f'week_mod_{mod}'
+        
         for slot in workout_slots:
+            slot_pattern = slot.get('week_pattern')
+            
+            # Check if this slot applies to this week
+            if slot_pattern is not None and applicable_pattern is not None:
+                if slot_pattern != applicable_pattern:
+                    continue  # Skip this slot for this week
+            
             # Calculate the actual date for this workout
             days_until = slot['day_of_week']  # 0=Monday
             workout_date = week_start + timedelta(days=days_until)
@@ -599,7 +757,7 @@ def copy_cycle(user_id: str, source_cycle_id: str, new_name: str,
                new_start_date: date, new_length_weeks: int = None):
     """
     Create a new cycle by copying from a previous one.
-    Copies workout slots and exercises.
+    Copies workout slots and exercises (including per-week exercises).
     """
     # Get source cycle
     source = get_cycle_by_id(source_cycle_id)
@@ -630,12 +788,13 @@ def copy_cycle(user_id: str, source_cycle_id: str, new_name: str,
             template_id=slot['template_id'],
             workout_name=slot['workout_name'],
             is_heavy_focus=slot['is_heavy_focus'],
-            order_index=slot['order_index']
+            order_index=slot['order_index'],
+            week_pattern=slot.get('week_pattern')
         )
         if new_slot:
             slot_mapping[slot['id']] = new_slot['id']
     
-    # Copy exercises
+    # Copy exercises (including week_number)
     source_exercises = get_cycle_exercises(source_cycle_id)
     
     for ex in source_exercises:
@@ -654,7 +813,8 @@ def copy_cycle(user_id: str, source_cycle_id: str, new_name: str,
                 rep_range_heavy=ex['rep_range_heavy'],
                 rep_range_light=ex['rep_range_light'],
                 rest_heavy=ex['rest_seconds_heavy'],
-                rest_light=ex['rest_seconds_light']
+                rest_light=ex['rest_seconds_light'],
+                week_number=ex.get('week_number')  # Preserve week-specific exercises
             )
     
     return new_cycle
