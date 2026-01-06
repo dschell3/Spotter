@@ -4,6 +4,7 @@ from config import Config
 from datetime import date, datetime, timedelta
 import db
 import db_cycles
+import db_progress
 import workout_generator
 
 app = Flask(__name__)
@@ -295,6 +296,170 @@ def profile():
     
     return render_template('profile.html', profile=profile_data, user=user, active_cycle=active_cycle)
 
+@app.route('/progress')
+@login_required
+def progress():
+    """Progress tracking dashboard."""
+    user = get_current_user()
+    
+    # Get timeframe from query params (default to cycle)
+    timeframe = request.args.get('timeframe', 'cycle')
+    
+    # Get date range
+    start_date, end_date = db_progress.get_date_range_for_timeframe(timeframe, user['id'])
+    
+    # Get user's exercises for selector
+    user_exercises = db_progress.get_user_exercises(user['id'])
+    
+    # Get volume data
+    volume_by_week = db_progress.get_volume_summary_by_week(user['id'], weeks=12)
+    
+    # Calculate volume stats
+    volume_data = db_progress.get_volume_by_workout_type(user['id'], start_date, end_date)
+    total_volume = sum(v['volume'] for v in volume_data)
+    total_sets = sum(v['sets'] for v in volume_data)
+    workouts_count = len(volume_data)
+    avg_volume = total_volume / workouts_count if workouts_count > 0 else 0
+    
+    volume_stats = {
+        'total_volume': total_volume,
+        'total_sets': total_sets,
+        'workouts_count': workouts_count,
+        'avg_volume_per_workout': avg_volume
+    }
+    
+    # Get consistency stats
+    consistency_stats = db_progress.get_consistency_stats(user['id'], start_date, end_date)
+    
+    # Get calendar heatmap data
+    calendar_data = db_progress.get_calendar_heatmap_data(user['id'])
+    
+    # Calculate weekly completion rates for chart
+    consistency_by_week = calculate_weekly_completion_rates(user['id'], weeks=12)
+    
+    # Get PR data
+    profile = db.get_user_profile(user['id'])
+    pr_threshold = profile.get('pr_rep_threshold', 5) if profile else 5
+    
+    all_prs = db_progress.get_personal_records(user['id'])
+    recent_prs = db_progress.get_recent_prs(user['id'], days=30)
+    
+    return render_template('progress.html',
+                         user=user,
+                         timeframe=timeframe,
+                         user_exercises=user_exercises,
+                         volume_by_week=volume_by_week,
+                         volume_stats=volume_stats,
+                         consistency_stats=consistency_stats,
+                         calendar_data=calendar_data,
+                         consistency_by_week=consistency_by_week,
+                         pr_threshold=pr_threshold,
+                         all_prs=all_prs,
+                         recent_prs=recent_prs)
+
+
+def calculate_weekly_completion_rates(user_id: str, weeks: int = 12):
+    """Calculate completion rate per week for the chart."""
+    from datetime import date, timedelta
+    
+    supabase = db.get_supabase_client()
+    end_date = date.today()
+    start_date = end_date - timedelta(weeks=weeks)
+    
+    # Get scheduled workouts
+    scheduled = supabase.table('scheduled_workouts')\
+        .select('scheduled_date, status')\
+        .eq('user_id', user_id)\
+        .gte('scheduled_date', start_date.isoformat())\
+        .lte('scheduled_date', end_date.isoformat())\
+        .execute()
+    
+    # Group by week
+    weeks_data = {}
+    for w in scheduled.data or []:
+        d = datetime.strptime(w['scheduled_date'], '%Y-%m-%d').date()
+        week_start = d - timedelta(days=d.weekday())
+        week_key = week_start.isoformat()
+        
+        if week_key not in weeks_data:
+            weeks_data[week_key] = {'scheduled': 0, 'completed': 0}
+        
+        weeks_data[week_key]['scheduled'] += 1
+        if w['status'] == 'completed':
+            weeks_data[week_key]['completed'] += 1
+    
+    # Calculate rates
+    result = []
+    for week, data in sorted(weeks_data.items()):
+        rate = round((data['completed'] / data['scheduled'] * 100) if data['scheduled'] > 0 else 0)
+        result.append({'week': week, 'rate': rate})
+    
+    return result
+
+
+@app.route('/api/progress/strength')
+@login_required
+def api_progress_strength():
+    """Get strength progress data for selected exercises."""
+    user = get_current_user()
+    
+    exercise_ids = request.args.get('exercises', '').split(',')
+    exercise_ids = [e.strip() for e in exercise_ids if e.strip()]
+    
+    if not exercise_ids:
+        return jsonify([])
+    
+    timeframe = request.args.get('timeframe', 'cycle')
+    start_date, end_date = db_progress.get_date_range_for_timeframe(timeframe, user['id'])
+    
+    data = db_progress.get_exercise_history(user['id'], exercise_ids, start_date, end_date)
+    
+    return jsonify(data)
+
+
+@app.route('/api/progress/volume')
+@login_required
+def api_progress_volume():
+    """Get volume data for charts."""
+    user = get_current_user()
+    
+    weeks = request.args.get('weeks', 12, type=int)
+    data = db_progress.get_volume_summary_by_week(user['id'], weeks)
+    
+    return jsonify(data)
+
+
+@app.route('/api/progress/consistency')
+@login_required
+def api_progress_consistency():
+    """Get consistency stats."""
+    user = get_current_user()
+    
+    timeframe = request.args.get('timeframe', 'cycle')
+    start_date, end_date = db_progress.get_date_range_for_timeframe(timeframe, user['id'])
+    
+    data = db_progress.get_consistency_stats(user['id'], start_date, end_date)
+    
+    return jsonify(data)
+
+
+@app.route('/api/progress/check-pr', methods=['POST'])
+@login_required
+def api_check_pr():
+    """Check if a lift is a new PR and record it."""
+    user = get_current_user()
+    data = request.json
+    
+    result = db_progress.check_and_update_pr(
+        user_id=user['id'],
+        exercise_id=data['exercise_id'],
+        exercise_name=data['exercise_name'],
+        weight=data['weight'],
+        reps=data['reps'],
+        workout_set_id=data.get('workout_set_id')
+    )
+    
+    return jsonify(result)
 
 # ============================================
 # PLANNING ROUTES (Phase 3)

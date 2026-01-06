@@ -648,6 +648,7 @@ def update_profile_training_settings(user_id: str, split_type: str = None,
                                      days_per_week: int = None,
                                      cycle_length_weeks: int = None,
                                      preferred_days: list = None,
+                                     pr_rep_threshold: int = None,  
                                      email: str = None):
     """Update user's training preferences. Creates profile if it doesn't exist."""
     supabase = get_supabase_client()
@@ -659,6 +660,8 @@ def update_profile_training_settings(user_id: str, split_type: str = None,
         updates['days_per_week'] = days_per_week
     if cycle_length_weeks is not None:
         updates['cycle_length_weeks'] = cycle_length_weeks
+    if pr_rep_threshold is not None:
+        updates['pr_rep_threshold'] = pr_rep_threshold
     if preferred_days is not None:
         # Supabase Python client handles list -> JSONB conversion automatically
         updates['preferred_days'] = preferred_days

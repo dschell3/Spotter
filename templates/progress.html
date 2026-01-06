@@ -1,0 +1,1168 @@
+{% extends "base.html" %}
+
+{% block title %}Progress{% endblock %}
+
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+    .tab-btn.active {
+        color: #22d3ee;
+        border-bottom-color: #22d3ee;
+    }
+    .tab-content {
+        display: none;
+    }
+    .tab-content.active {
+        display: block;
+    }
+    .heatmap-cell {
+        width: 12px;
+        height: 12px;
+        border-radius: 2px;
+    }
+    .heatmap-level-0 { background-color: #1a1a1a; }
+    .heatmap-level-1 { background-color: #0e4429; }
+    .heatmap-level-2 { background-color: #006d32; }
+    .heatmap-level-3 { background-color: #26a641; }
+    .heatmap-level-4 { background-color: #39d353; }
+    .pr-celebration {
+        animation: celebrate 0.6s ease-out;
+    }
+    @keyframes celebrate {
+        0% { transform: scale(1); }
+        50% { transform: scale(1.05); }
+        100% { transform: scale(1); }
+    }
+    .exercise-chip {
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+    .exercise-chip.selected {
+        background-color: rgba(34, 211, 238, 0.2);
+        border-color: #22d3ee;
+        color: #22d3ee;
+    }
+    
+    /* Modal styles */
+    .muscle-filter-btn {
+        transition: all 0.15s;
+    }
+    .muscle-filter-btn.active {
+        background-color: rgba(34, 211, 238, 0.2);
+        border-color: #22d3ee;
+        color: #22d3ee;
+    }
+    .modal-exercise-item {
+        transition: all 0.15s;
+    }
+    .modal-exercise-item.selected {
+        background-color: rgba(34, 211, 238, 0.1) !important;
+        border: 1px solid rgba(34, 211, 238, 0.3);
+    }
+    .exercise-checkbox {
+        transition: all 0.15s;
+    }
+    .exercise-checkbox.checked {
+        background-color: #22d3ee;
+        border-color: #22d3ee;
+    }
+    .exercise-checkbox svg {
+        opacity: 0;
+        transition: opacity 0.15s;
+    }
+    .exercise-checkbox.checked svg {
+        opacity: 1;
+    }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="min-h-full flex flex-col">
+    <!-- Header -->
+    <header class="sticky top-0 z-50 bg-dark-800/95 backdrop-blur border-b border-dark-600 px-4 py-3 safe-area-inset">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <a href="{{ url_for('index') }}" class="flex items-center gap-2 text-gray-400 hover:text-gray-200 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+                <span class="text-sm">Back</span>
+            </a>
+            
+            <h1 class="text-lg font-semibold text-gray-100">Progress</h1>
+            
+            <!-- Timeframe Selector -->
+            <select id="timeframe-select" onchange="changeTimeframe(this.value)"
+                    class="bg-dark-700 border border-dark-500 rounded-lg px-2 py-1 text-sm text-gray-300 focus:outline-none focus:border-accent">
+                <option value="cycle" {{ 'selected' if timeframe == 'cycle' else '' }}>Full Cycle</option>
+                <option value="year" {{ 'selected' if timeframe == 'year' else '' }}>Last Year</option>
+                <option value="all" {{ 'selected' if timeframe == 'all' else '' }}>All Time</option>
+            </select>
+        </div>
+    </header>
+    
+    <!-- Tabs -->
+    <div class="bg-dark-800 border-b border-dark-600">
+        <div class="max-w-4xl mx-auto">
+            <div class="flex">
+                <button onclick="switchTab('strength')" 
+                        class="tab-btn flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-200 transition-colors active"
+                        data-tab="strength">
+                    Strength
+                </button>
+                <button onclick="switchTab('volume')" 
+                        class="tab-btn flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-200 transition-colors"
+                        data-tab="volume">
+                    Volume
+                </button>
+                <button onclick="switchTab('consistency')" 
+                        class="tab-btn flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-200 transition-colors"
+                        data-tab="consistency">
+                    Consistency
+                </button>
+                <button onclick="switchTab('prs')" 
+                        class="tab-btn flex-1 py-3 text-sm font-medium text-gray-400 border-b-2 border-transparent hover:text-gray-200 transition-colors"
+                        data-tab="prs">
+                    PRs
+                </button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Main Content -->
+    <main class="flex-1 px-4 py-6">
+        <div class="max-w-4xl mx-auto">
+            
+            <!-- Strength Tab -->
+            <div id="tab-strength" class="tab-content active">
+                <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-4">
+                    <h3 class="text-sm font-medium text-gray-400 mb-3">Select Exercises to Compare</h3>
+                    
+                    <!-- Quick Access - Popular Compound Lifts -->
+                    <div id="exercise-selector" class="flex flex-wrap gap-2 mb-3">
+                        <button onclick="toggleExerciseByName('Barbell Bench Press')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Barbell Bench Press">
+                            Bench Press
+                        </button>
+                        <button onclick="toggleExerciseByName('Barbell Back Squat')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Barbell Back Squat">
+                            Squat
+                        </button>
+                        <button onclick="toggleExerciseByName('Romanian Deadlift')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Romanian Deadlift">
+                            Deadlift
+                        </button>
+                        <button onclick="toggleExerciseByName('Overhead Press')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Overhead Press">
+                            OHP
+                        </button>
+                        <button onclick="toggleExerciseByName('Barbell Row')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Barbell Row">
+                            Row
+                        </button>
+                        <button onclick="toggleExerciseByName('Pull-Up')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Pull-Up">
+                            Pull-Up
+                        </button>
+                        <button onclick="toggleExerciseByName('Leg Press')"
+                                class="exercise-chip px-3 py-1.5 text-xs rounded-lg border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                                data-exercise-name="Leg Press">
+                            Leg Press
+                        </button>
+                        
+                        <!-- Browse All Button -->
+                        <button onclick="openExerciseModal()" 
+                                class="px-3 py-1.5 text-xs rounded-lg border border-dashed border-accent/50 text-accent hover:bg-accent/10 transition-colors flex items-center gap-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                            </svg>
+                            Browse all ({{ user_exercises | length }})
+                        </button>
+                    </div>
+                    
+                    <!-- Selected exercises display -->
+                    <div id="selected-exercises-display" class="hidden mb-3">
+                        <div class="flex flex-wrap gap-1 items-center">
+                            <span class="text-xs text-gray-500 mr-1">Selected:</span>
+                            <div id="selected-tags" class="flex flex-wrap gap-1"></div>
+                        </div>
+                    </div>
+                    
+                    <p class="text-xs text-gray-500">Click exercises to add/remove from chart (max 5)</p>
+                </div>
+                
+                <!-- Strength Chart -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-medium text-gray-100">Weight Over Time</h3>
+                        <span class="text-xs text-gray-500">Best weight per session</span>
+                    </div>
+                    <div class="relative h-64 md:h-80">
+                        <canvas id="strengthChart"></canvas>
+                    </div>
+                    <p id="strength-empty" class="hidden text-center text-gray-500 py-8">
+                        Select exercises above to see your progress
+                    </p>
+                </div>
+            </div>
+            
+            <!-- Volume Tab -->
+            <div id="tab-volume" class="tab-content">
+                <!-- Volume Summary Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-gray-100" id="total-volume">{{ "{:,.0f}".format(volume_stats.total_volume) }}</p>
+                        <p class="text-xs text-gray-500">Total Volume (lbs)</p>
+                    </div>
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-gray-100" id="total-sets">{{ volume_stats.total_sets }}</p>
+                        <p class="text-xs text-gray-500">Total Sets</p>
+                    </div>
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-accent" id="avg-volume">{{ "{:,.0f}".format(volume_stats.avg_volume_per_workout) }}</p>
+                        <p class="text-xs text-gray-500">Avg Volume/Workout</p>
+                    </div>
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-gray-100" id="workouts-count">{{ volume_stats.workouts_count }}</p>
+                        <p class="text-xs text-gray-500">Workouts</p>
+                    </div>
+                </div>
+                
+                <!-- Volume Chart -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-medium text-gray-100">Weekly Volume by Workout Type</h3>
+                    </div>
+                    <div class="relative h-64 md:h-80">
+                        <canvas id="volumeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Consistency Tab -->
+            <div id="tab-consistency" class="tab-content">
+                <!-- Stats Cards -->
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold {{ 'text-success' if consistency_stats.completion_rate >= 80 else 'text-warning' if consistency_stats.completion_rate >= 60 else 'text-gray-100' }}">
+                            {{ consistency_stats.completion_rate }}%
+                        </p>
+                        <p class="text-xs text-gray-500">Completion Rate</p>
+                    </div>
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-gray-100">{{ consistency_stats.total_workouts }}</p>
+                        <p class="text-xs text-gray-500">Workouts Done</p>
+                    </div>
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-accent">{{ consistency_stats.current_streak }}</p>
+                        <p class="text-xs text-gray-500">Current Streak (weeks)</p>
+                    </div>
+                    <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 text-center">
+                        <p class="text-2xl font-bold text-gray-100">{{ consistency_stats.longest_streak }}</p>
+                        <p class="text-xs text-gray-500">Best Streak (weeks)</p>
+                    </div>
+                </div>
+                
+                <!-- Calendar Heatmap -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="font-medium text-gray-100">Workout Activity</h3>
+                        <div class="flex items-center gap-1 text-xs text-gray-500">
+                            <span>Less</span>
+                            <div class="heatmap-cell heatmap-level-0"></div>
+                            <div class="heatmap-cell heatmap-level-1"></div>
+                            <div class="heatmap-cell heatmap-level-2"></div>
+                            <div class="heatmap-cell heatmap-level-3"></div>
+                            <div class="heatmap-cell heatmap-level-4"></div>
+                            <span>More</span>
+                        </div>
+                    </div>
+                    
+                    <!-- Heatmap Container -->
+                    <div id="heatmap-container" class="overflow-x-auto pb-2">
+                        <div id="heatmap" class="flex gap-1" style="min-width: fit-content;">
+                            <!-- Generated by JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <!-- Month Labels -->
+                    <div id="month-labels" class="flex text-xs text-gray-600 mt-2" style="min-width: fit-content;">
+                        <!-- Generated by JavaScript -->
+                    </div>
+                </div>
+                
+                <!-- Completion Rate Chart -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mt-4">
+                    <h3 class="font-medium text-gray-100 mb-4">Weekly Completion Rate</h3>
+                    <div class="relative h-48">
+                        <canvas id="consistencyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- PRs Tab -->
+            <div id="tab-prs" class="tab-content">
+                <!-- PR Settings -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h3 class="font-medium text-gray-100">PR Rep Threshold</h3>
+                            <p class="text-xs text-gray-500">Only lifts with this many reps or fewer count as PRs</p>
+                        </div>
+                        <select id="pr-threshold" onchange="updatePRThreshold(this.value)"
+                                class="bg-dark-700 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
+                            {% for i in range(1, 6) %}
+                            <option value="{{ i }}" {{ 'selected' if pr_threshold == i else '' }}>
+                                {{ i }} rep{{ 's' if i > 1 else '' }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                </div>
+                
+                <!-- Recent PRs -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden mb-4">
+                    <div class="px-4 py-3 border-b border-dark-600">
+                        <h3 class="font-medium text-gray-100">Recent Personal Records</h3>
+                    </div>
+                    
+                    {% if recent_prs %}
+                    <div class="divide-y divide-dark-600">
+                        {% for pr in recent_prs %}
+                        <div class="px-4 py-3 flex items-center justify-between">
+                            <div>
+                                <p class="text-gray-100">{{ pr.exercise_name }}</p>
+                                <p class="text-xs text-gray-500">{{ pr.achieved_at[:10] }}</p>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-lg font-bold text-accent">{{ pr.weight }} lbs</p>
+                                <p class="text-xs text-gray-500">× {{ pr.reps }} reps</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="p-8 text-center text-gray-500">
+                        <svg class="w-12 h-12 mx-auto mb-3 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                        <p>No PRs recorded yet</p>
+                        <p class="text-xs mt-1">Keep training - your first PR will appear here!</p>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- All-Time PRs -->
+                <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+                    <div class="px-4 py-3 border-b border-dark-600">
+                        <h3 class="font-medium text-gray-100">All-Time Personal Records</h3>
+                    </div>
+                    
+                    {% if all_prs %}
+                    <div class="divide-y divide-dark-600">
+                        {% for pr in all_prs %}
+                        <div class="px-4 py-3 flex items-center justify-between">
+                            <div class="flex items-center gap-3">
+                                <div class="w-10 h-10 rounded-lg bg-accent/20 flex items-center justify-center text-accent">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z"/>
+                                    </svg>
+                                </div>
+                                <div>
+                                    <p class="text-gray-100">{{ pr.exercise_name }}</p>
+                                    <p class="text-xs text-gray-500">Set on {{ pr.achieved_at[:10] }}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                <p class="text-xl font-bold text-gray-100">{{ pr.weight }} <span class="text-sm text-gray-500">lbs</span></p>
+                                <p class="text-xs text-gray-500">{{ pr.reps }} rep{{ 's' if pr.reps > 1 else '' }}</p>
+                            </div>
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% else %}
+                    <div class="p-8 text-center text-gray-500">
+                        <p>Complete some workouts to establish your baseline PRs</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+            
+        </div>
+    </main>
+</div>
+
+<!-- Exercise Selector Modal -->
+<div id="exercise-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/70" onclick="closeExerciseModal()"></div>
+    <div class="absolute bottom-0 left-0 right-0 bg-dark-800 rounded-t-2xl max-h-[85vh] flex flex-col safe-area-inset">
+        <!-- Fixed Header -->
+        <div class="p-4 border-b border-dark-600 flex-shrink-0">
+            <div class="flex items-center justify-between mb-3">
+                <h3 class="font-semibold text-gray-100">Select Exercises</h3>
+                <button onclick="closeExerciseModal()" class="text-gray-500 hover:text-gray-300">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Search Input -->
+            <div class="relative mb-3">
+                <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+                <input type="text" id="exercise-search" 
+                       placeholder="Search exercises..." 
+                       oninput="filterModalExercises()"
+                       class="w-full bg-dark-700 border border-dark-500 rounded-lg pl-10 pr-4 py-2.5 text-gray-100 placeholder-gray-500 focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent">
+            </div>
+            
+            <!-- Muscle Group Filters -->
+            <div class="flex flex-wrap gap-2">
+                <button onclick="filterByMuscle('')" 
+                        class="muscle-filter-btn active px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="">
+                    All
+                </button>
+                <button onclick="filterByMuscle('chest')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="chest">
+                    Chest
+                </button>
+                <button onclick="filterByMuscle('back')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="back">
+                    Back
+                </button>
+                <button onclick="filterByMuscle('shoulders')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="shoulders">
+                    Shoulders
+                </button>
+                <button onclick="filterByMuscle('quads')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="quads">
+                    Quads
+                </button>
+                <button onclick="filterByMuscle('hamstrings')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="hamstrings">
+                    Hamstrings
+                </button>
+                <button onclick="filterByMuscle('glutes')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="glutes">
+                    Glutes
+                </button>
+                <button onclick="filterByMuscle('biceps')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="biceps">
+                    Biceps
+                </button>
+                <button onclick="filterByMuscle('triceps')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="triceps">
+                    Triceps
+                </button>
+                <button onclick="filterByMuscle('calves')" 
+                        class="muscle-filter-btn px-3 py-1 text-xs rounded-full border border-dark-500 text-gray-400 hover:border-gray-400 transition-colors"
+                        data-muscle="calves">
+                    Calves
+                </button>
+            </div>
+        </div>
+        
+        <!-- Scrollable Exercise List -->
+        <div class="flex-1 overflow-y-auto p-4">
+            <div id="modal-exercise-list" class="space-y-2">
+                <!-- Populated by JavaScript -->
+            </div>
+            <div id="modal-no-results" class="hidden text-center py-8 text-gray-500">
+                No exercises found matching your search
+            </div>
+        </div>
+        
+        <!-- Footer with selection count -->
+        <div class="p-4 border-t border-dark-600 flex-shrink-0">
+            <div class="flex items-center justify-between">
+                <span class="text-sm text-gray-400">
+                    <span id="modal-selection-count">0</span>/5 selected
+                </span>
+                <button onclick="closeExerciseModal()" 
+                        class="px-6 py-2 bg-accent text-dark-900 rounded-lg font-medium hover:bg-accent/90 transition-colors">
+                    Done
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Chart instances
+    let strengthChart = null;
+    let volumeChart = null;
+    let consistencyChart = null;
+    
+    // Selected exercises for strength chart
+    let selectedExercises = [];
+    const MAX_EXERCISES = 5;
+    
+    // Color palette for charts
+    const chartColors = [
+        '#22d3ee', // cyan/accent
+        '#22c55e', // green
+        '#eab308', // yellow
+        '#f97316', // orange
+        '#ec4899', // pink
+    ];
+    
+    // Data from server
+    const volumeData = {{ volume_by_week | tojson | safe }};
+    const calendarData = {{ calendar_data | tojson | safe }};
+    const consistencyByWeek = {{ consistency_by_week | tojson | safe }};
+    
+    // All exercises for modal
+    const allExercises = {{ user_exercises | tojson | safe }};
+    
+    // Modal state
+    let currentMuscleFilter = '';
+    let currentSearchTerm = '';
+    
+    // Initialize on load
+    document.addEventListener('DOMContentLoaded', () => {
+        loadExercisesFromUrl();  // Restore selected exercises from URL
+        initVolumeChart();
+        initConsistencyChart();
+        generateHeatmap();
+        initExerciseModal();     // Initialize modal exercise list
+        updateSelectedDisplay(); // Update selected tags display
+    });
+    
+    // Tab switching
+    function switchTab(tab) {
+        // Update tab buttons
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.tab === tab);
+        });
+        
+        // Update tab content
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.toggle('active', content.id === `tab-${tab}`);
+        });
+    }
+    
+    // Timeframe change - preserves selected exercises
+    function changeTimeframe(timeframe) {
+        const url = new URL(window.location);
+        url.searchParams.set('timeframe', timeframe);
+        
+        // Preserve selected exercises in URL
+        if (selectedExercises.length > 0) {
+            const exerciseIds = selectedExercises.map(e => e.id).join(',');
+            url.searchParams.set('exercises', exerciseIds);
+        } else {
+            url.searchParams.delete('exercises');
+        }
+        
+        window.location = url;
+    }
+    
+    // Update URL with current exercise selection (without page reload)
+    function updateUrlWithExercises() {
+        const url = new URL(window.location);
+        if (selectedExercises.length > 0) {
+            const exerciseIds = selectedExercises.map(e => e.id).join(',');
+            url.searchParams.set('exercises', exerciseIds);
+        } else {
+            url.searchParams.delete('exercises');
+        }
+        window.history.replaceState({}, '', url);
+    }
+    
+    // Load exercises from URL on page load
+    function loadExercisesFromUrl() {
+        const url = new URL(window.location);
+        const exerciseParam = url.searchParams.get('exercises');
+        
+        if (exerciseParam) {
+            const exerciseIds = exerciseParam.split(',');
+            
+            exerciseIds.forEach(id => {
+                // Look up in allExercises array
+                const exercise = allExercises.find(e => e.id === id);
+                if (exercise) {
+                    selectedExercises.push({ 
+                        id: exercise.id, 
+                        name: exercise.name, 
+                        muscle_group: exercise.muscle_group 
+                    });
+                    
+                    // Update name-based chip if exists
+                    const nameChip = document.querySelector(`[data-exercise-name="${exercise.name}"]`);
+                    if (nameChip) nameChip.classList.add('selected');
+                }
+            });
+            
+            // Fetch chart data if exercises were loaded
+            if (selectedExercises.length > 0) {
+                updateStrengthChart();
+                updateSelectedDisplay();
+            }
+        }
+    }
+    
+    // Exercise selection for strength chart
+    function toggleExercise(exerciseId, exerciseName, muscleGroup = '') {
+        const nameChip = document.querySelector(`[data-exercise-name="${exerciseName}"]`);
+        const modalItem = document.querySelector(`[data-modal-exercise-id="${exerciseId}"]`);
+        const index = selectedExercises.findIndex(e => e.id === exerciseId);
+        
+        if (index >= 0) {
+            // Remove
+            selectedExercises.splice(index, 1);
+            if (nameChip) nameChip.classList.remove('selected');
+            if (modalItem) {
+                modalItem.classList.remove('selected');
+                const checkbox = modalItem.querySelector('.exercise-checkbox');
+                if (checkbox) checkbox.classList.remove('checked');
+            }
+        } else {
+            // Add (if under limit)
+            if (selectedExercises.length >= MAX_EXERCISES) {
+                alert(`Maximum ${MAX_EXERCISES} exercises can be compared at once`);
+                return;
+            }
+            selectedExercises.push({ id: exerciseId, name: exerciseName, muscle_group: muscleGroup });
+            if (nameChip) nameChip.classList.add('selected');
+            if (modalItem) {
+                modalItem.classList.add('selected');
+                const checkbox = modalItem.querySelector('.exercise-checkbox');
+                if (checkbox) checkbox.classList.add('checked');
+            }
+        }
+        
+        // Update URL to preserve selection
+        updateUrlWithExercises();
+        
+        // Update displays
+        updateSelectedDisplay();
+        updateModalSelectionCount();
+        
+        updateStrengthChart();
+    }
+    
+    // Toggle exercise by name (for quick-access chips)
+    function toggleExerciseByName(exerciseName) {
+        const exercise = allExercises.find(e => e.name === exerciseName);
+        if (exercise) {
+            toggleExercise(exercise.id, exercise.name, exercise.muscle_group || '');
+        } else {
+            console.warn(`Exercise not found: ${exerciseName}`);
+        }
+    }
+    
+    async function updateStrengthChart() {
+        const emptyMsg = document.getElementById('strength-empty');
+        const canvas = document.getElementById('strengthChart');
+        
+        if (selectedExercises.length === 0) {
+            emptyMsg.classList.remove('hidden');
+            canvas.classList.add('hidden');
+            if (strengthChart) {
+                strengthChart.destroy();
+                strengthChart = null;
+            }
+            return;
+        }
+        
+        emptyMsg.classList.add('hidden');
+        canvas.classList.remove('hidden');
+        
+        // Fetch data for selected exercises
+        const exerciseIds = selectedExercises.map(e => e.id).join(',');
+        const timeframe = document.getElementById('timeframe-select').value;
+        
+        try {
+            const response = await fetch(`/api/progress/strength?exercises=${exerciseIds}&timeframe=${timeframe}`);
+            const data = await response.json();
+            
+            // Group data by exercise
+            const datasets = [];
+            const allDates = new Set();
+            
+            selectedExercises.forEach((exercise, idx) => {
+                const exerciseData = data.filter(d => d.exercise_id === exercise.id);
+                
+                // Group by date, get max weight
+                const byDate = {};
+                exerciseData.forEach(d => {
+                    if (!byDate[d.date] || d.weight > byDate[d.date]) {
+                        byDate[d.date] = d.weight;
+                    }
+                    allDates.add(d.date);
+                });
+                
+                datasets.push({
+                    label: exercise.name,
+                    data: Object.entries(byDate).map(([date, weight]) => ({ x: date, y: weight })),
+                    borderColor: chartColors[idx % chartColors.length],
+                    backgroundColor: chartColors[idx % chartColors.length] + '33',
+                    tension: 0.3,
+                    fill: false,
+                    pointRadius: 4,
+                    pointHoverRadius: 6
+                });
+            });
+            
+            // Create or update chart
+            if (strengthChart) {
+                strengthChart.data.datasets = datasets;
+                strengthChart.update();
+            } else {
+                const ctx = canvas.getContext('2d');
+                strengthChart = new Chart(ctx, {
+                    type: 'line',
+                    data: { datasets },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        interaction: {
+                            intersect: false,
+                            mode: 'index'
+                        },
+                        scales: {
+                            x: {
+                                type: 'category',
+                                grid: { color: '#2e2e2e' },
+                                ticks: { color: '#9ca3af' }
+                            },
+                            y: {
+                                beginAtZero: false,
+                                grid: { color: '#2e2e2e' },
+                                ticks: { 
+                                    color: '#9ca3af',
+                                    callback: (value) => value + ' lbs'
+                                }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                labels: { color: '#e5e7eb' }
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} lbs`
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        } catch (err) {
+            console.error('Failed to load strength data:', err);
+        }
+    }
+    
+    function initVolumeChart() {
+        const ctx = document.getElementById('volumeChart').getContext('2d');
+        
+        // Get unique workout types
+        const workoutTypes = new Set();
+        volumeData.forEach(week => {
+            Object.keys(week).forEach(key => {
+                if (key !== 'week') workoutTypes.add(key);
+            });
+        });
+        
+        const datasets = [];
+        const typeColors = {
+            'Push + Pull': '#22d3ee',
+            'Legs + Push': '#22c55e',
+            'Pull + Legs': '#eab308',
+            'Push': '#f97316',
+            'Pull': '#ec4899',
+            'Legs': '#8b5cf6'
+        };
+        
+        let colorIdx = 0;
+        workoutTypes.forEach(type => {
+            datasets.push({
+                label: type,
+                data: volumeData.map(week => week[type] || 0),
+                backgroundColor: typeColors[type] || chartColors[colorIdx % chartColors.length] + 'cc',
+                borderColor: typeColors[type] || chartColors[colorIdx % chartColors.length],
+                borderWidth: 1
+            });
+            colorIdx++;
+        });
+        
+        volumeChart = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: volumeData.map(w => {
+                    const d = new Date(w.week);
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }),
+                datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        stacked: true,
+                        grid: { color: '#2e2e2e' },
+                        ticks: { color: '#9ca3af' }
+                    },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        grid: { color: '#2e2e2e' },
+                        ticks: { 
+                            color: '#9ca3af',
+                            callback: (value) => (value / 1000).toFixed(0) + 'k'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        labels: { color: '#e5e7eb' }
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} lbs`
+                        }
+                    }
+                }
+            }
+        });
+    }
+    
+    function initConsistencyChart() {
+        const ctx = document.getElementById('consistencyChart').getContext('2d');
+        
+        consistencyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: consistencyByWeek.map(w => {
+                    const d = new Date(w.week);
+                    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                }),
+                datasets: [{
+                    label: 'Completion Rate',
+                    data: consistencyByWeek.map(w => w.rate),
+                    borderColor: '#22d3ee',
+                    backgroundColor: '#22d3ee33',
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: {
+                        grid: { color: '#2e2e2e' },
+                        ticks: { color: '#9ca3af' }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        max: 100,
+                        grid: { color: '#2e2e2e' },
+                        ticks: { 
+                            color: '#9ca3af',
+                            callback: (value) => value + '%'
+                        }
+                    }
+                },
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+    }
+    
+    function generateHeatmap() {
+        const container = document.getElementById('heatmap');
+        const monthLabels = document.getElementById('month-labels');
+        
+        // Generate last 52 weeks (1 year)
+        const today = new Date();
+        const startDate = new Date(today);
+        startDate.setDate(startDate.getDate() - 364);
+        
+        // Find the Sunday of that week
+        const dayOfWeek = startDate.getDay();
+        startDate.setDate(startDate.getDate() - dayOfWeek);
+        
+        let html = '';
+        let monthHtml = '';
+        let currentMonth = -1;
+        let weekCount = 0;
+        
+        // Generate 53 weeks of columns
+        for (let week = 0; week < 53; week++) {
+            html += '<div class="flex flex-col gap-1">';
+            
+            for (let day = 0; day < 7; day++) {
+                const date = new Date(startDate);
+                date.setDate(date.getDate() + (week * 7) + day);
+                
+                // Skip future dates
+                if (date > today) {
+                    html += '<div class="heatmap-cell heatmap-level-0"></div>';
+                    continue;
+                }
+                
+                const dateStr = date.toISOString().split('T')[0];
+                const count = calendarData[dateStr] || 0;
+                
+                // Determine level (0-4)
+                let level = 0;
+                if (count >= 3) level = 4;
+                else if (count >= 2) level = 3;
+                else if (count >= 1) level = 2;
+                else if (count > 0) level = 1;
+                
+                const tooltip = `${dateStr}: ${count} workout${count !== 1 ? 's' : ''}`;
+                html += `<div class="heatmap-cell heatmap-level-${level}" title="${tooltip}"></div>`;
+                
+                // Track month changes (on first day of week)
+                if (day === 0) {
+                    const month = date.getMonth();
+                    if (month !== currentMonth) {
+                        currentMonth = month;
+                        weekCount = 0;
+                    }
+                    weekCount++;
+                }
+            }
+            
+            html += '</div>';
+        }
+        
+        container.innerHTML = html;
+        
+        // Generate month labels
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        let labelDate = new Date(startDate);
+        let lastMonth = -1;
+        
+        for (let week = 0; week < 53; week++) {
+            const month = labelDate.getMonth();
+            if (month !== lastMonth) {
+                monthHtml += `<span class="flex-shrink-0" style="width: ${week === 0 ? '12px' : '52px'}">${months[month]}</span>`;
+                lastMonth = month;
+            }
+            labelDate.setDate(labelDate.getDate() + 7);
+        }
+        
+        monthLabels.innerHTML = monthHtml;
+    }
+    
+    async function updatePRThreshold(threshold) {
+        try {
+            await fetch('/api/profile/settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ pr_rep_threshold: parseInt(threshold) })
+            });
+            // Reload to refresh PR data
+            location.reload();
+        } catch (err) {
+            console.error('Failed to update PR threshold:', err);
+        }
+    }
+    
+    function showAllExercises() {
+        // Legacy function - redirect to new modal
+        openExerciseModal();
+    }
+    
+    // ============================================
+    // EXERCISE MODAL FUNCTIONS
+    // ============================================
+    
+    function initExerciseModal() {
+        renderModalExercises(allExercises);
+    }
+    
+    function openExerciseModal() {
+        const modal = document.getElementById('exercise-modal');
+        modal.classList.remove('hidden');
+        document.body.style.overflow = 'hidden'; // Prevent background scroll
+        
+        // Reset filters
+        currentMuscleFilter = '';
+        currentSearchTerm = '';
+        document.getElementById('exercise-search').value = '';
+        
+        // Reset muscle filter buttons
+        document.querySelectorAll('.muscle-filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.muscle === '');
+        });
+        
+        // Render full list and update selection state
+        renderModalExercises(allExercises);
+        updateModalSelectionCount();
+        
+        // Focus search input
+        setTimeout(() => {
+            document.getElementById('exercise-search').focus();
+        }, 100);
+    }
+    
+    function closeExerciseModal() {
+        const modal = document.getElementById('exercise-modal');
+        modal.classList.add('hidden');
+        document.body.style.overflow = ''; // Restore scroll
+    }
+    
+    function renderModalExercises(exercises) {
+        const container = document.getElementById('modal-exercise-list');
+        const noResults = document.getElementById('modal-no-results');
+        
+        if (exercises.length === 0) {
+            container.innerHTML = '';
+            noResults.classList.remove('hidden');
+            return;
+        }
+        
+        noResults.classList.add('hidden');
+        
+        // Group by muscle group for better organization
+        const grouped = {};
+        exercises.forEach(ex => {
+            const group = ex.muscle_group || 'Other';
+            if (!grouped[group]) grouped[group] = [];
+            grouped[group].push(ex);
+        });
+        
+        // Sort groups alphabetically
+        const sortedGroups = Object.keys(grouped).sort();
+        
+        let html = '';
+        sortedGroups.forEach(group => {
+            const groupExercises = grouped[group];
+            const groupLabel = group.charAt(0).toUpperCase() + group.slice(1).replace('_', ' ');
+            
+            html += `<div class="mb-4">
+                <h4 class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">${groupLabel}</h4>
+                <div class="space-y-1">`;
+            
+            groupExercises.forEach(ex => {
+                const isSelected = selectedExercises.some(s => s.id === ex.id);
+                const selectedClass = isSelected ? 'selected' : '';
+                const checkboxClass = isSelected ? 'checked' : '';
+                
+                html += `
+                    <button onclick="toggleExercise('${ex.id}', '${ex.name.replace(/'/g, "\\'")}', '${ex.muscle_group || ''}')"
+                            class="modal-exercise-item ${selectedClass} w-full flex items-center gap-3 p-3 rounded-lg bg-dark-700 hover:bg-dark-600 text-left transition-colors"
+                            data-modal-exercise-id="${ex.id}"
+                            data-muscle-group="${ex.muscle_group || ''}">
+                        <div class="exercise-checkbox w-5 h-5 rounded border-2 border-dark-500 flex items-center justify-center flex-shrink-0 ${checkboxClass}">
+                            <svg class="w-3 h-3 text-dark-900" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-gray-100 text-sm truncate">${ex.name}</p>
+                            <p class="text-xs text-gray-500">${ex.count || 0} sets logged${ex.is_compound ? ' · Compound' : ''}</p>
+                        </div>
+                    </button>
+                `;
+            });
+            
+            html += `</div></div>`;
+        });
+        
+        container.innerHTML = html;
+    }
+    
+    function filterModalExercises() {
+        const searchInput = document.getElementById('exercise-search');
+        currentSearchTerm = searchInput.value.toLowerCase().trim();
+        
+        applyModalFilters();
+    }
+    
+    function filterByMuscle(muscle) {
+        currentMuscleFilter = muscle;
+        
+        // Update button states
+        document.querySelectorAll('.muscle-filter-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.muscle === muscle);
+        });
+        
+        applyModalFilters();
+    }
+    
+    function applyModalFilters() {
+        let filtered = allExercises;
+        
+        // Apply muscle filter
+        if (currentMuscleFilter) {
+            filtered = filtered.filter(ex => ex.muscle_group === currentMuscleFilter);
+        }
+        
+        // Apply search filter
+        if (currentSearchTerm) {
+            filtered = filtered.filter(ex => 
+                ex.name.toLowerCase().includes(currentSearchTerm)
+            );
+        }
+        
+        renderModalExercises(filtered);
+    }
+    
+    function updateModalSelectionCount() {
+        const countEl = document.getElementById('modal-selection-count');
+        if (countEl) {
+            countEl.textContent = selectedExercises.length;
+        }
+    }
+    
+    function updateSelectedDisplay() {
+        const container = document.getElementById('selected-exercises-display');
+        const tagsContainer = document.getElementById('selected-tags');
+        
+        if (selectedExercises.length === 0) {
+            container.classList.add('hidden');
+            return;
+        }
+        
+        container.classList.remove('hidden');
+        
+        // Build tags HTML
+        const tagsHtml = selectedExercises.map((ex, idx) => `
+            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium"
+                  style="background-color: ${chartColors[idx % chartColors.length]}22; color: ${chartColors[idx % chartColors.length]}; border: 1px solid ${chartColors[idx % chartColors.length]}44">
+                ${ex.name}
+                <button onclick="removeSelectedExercise('${ex.id}')" class="hover:opacity-70">
+                    <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </span>
+        `).join('');
+        
+        tagsContainer.innerHTML = tagsHtml;
+    }
+    
+    function removeSelectedExercise(exerciseId) {
+        // Find exercise name for the toggle call
+        const exercise = selectedExercises.find(e => e.id === exerciseId);
+        if (exercise) {
+            toggleExercise(exerciseId, exercise.name, exercise.muscle_group || '');
+        }
+    }
+</script>
+{% endblock %}
