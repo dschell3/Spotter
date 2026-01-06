@@ -341,7 +341,10 @@
         showRestIntervals: true,
         schedule: [],
         // Multi-week exercise structure: exercises[weekNumber][workoutIndex] = array of exercises
-        weeklyExercises: {}
+        weeklyExercises: {},
+        // Rotation tracking
+        rotationWeeks: 1,
+        selectedScheduleWeek: '1'
     };
     
     let currentWeek = 1;
@@ -384,57 +387,69 @@
         return cycleConfig.splitType === 'custom';
     }
     
-    function getWorkoutStructure() {
-        const split = cycleConfig.splitType;
-        const days = cycleConfig.daysPerWeek;
-        
-        if (split === 'custom') {
-            // Custom split: generic day names, all muscle groups available, no heavy/light
+    // Cached schedule data from API
+    let cachedScheduleData = null;
+    
+    async function fetchWorkoutStructure() {
+        // Fetch from API to get proper rotation logic
+        try {
+            const response = await fetch(`/api/schedule/preview?split=${cycleConfig.splitType}&days=${cycleConfig.daysPerWeek}`);
+            const data = await response.json();
+            cachedScheduleData = data;
+            return data;
+        } catch (err) {
+            console.error('Failed to fetch schedule preview:', err);
+            return null;
+        }
+    }
+    
+    function getWorkoutStructureFromCache() {
+        // Fallback for synchronous calls - returns flat structure from week 1
+        if (!cachedScheduleData || !cachedScheduleData.weeks || !cachedScheduleData.weeks[0]) {
+            // Return simple fallback
+            const days = cycleConfig.daysPerWeek;
             return Array.from({length: days}, (_, i) => ({
                 name: `Day ${i + 1}`,
                 heavyFocus: [],
                 muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings', 'biceps', 'triceps', 'glutes', 'calves'],
-                isCustom: true
+                week_pattern: null
             }));
-        } else if (split === 'full_body') {
-            return Array.from({length: days}, (_, i) => ({
-                name: `Full Body ${String.fromCharCode(65 + i)}`,
-                heavyFocus: i % 2 === 0 ? ['compound'] : [],
-                muscles: ['chest', 'back', 'shoulders', 'quads', 'hamstrings']
-            }));
-        } else if (split === 'upper_lower') {
-            return Array.from({length: days}, (_, i) => ({
-                name: i % 2 === 0 ? 'Upper' : 'Lower',
-                heavyFocus: i < 2 ? [i % 2 === 0 ? 'upper' : 'lower'] : [],
-                muscles: i % 2 === 0 ? ['chest', 'back', 'shoulders', 'biceps', 'triceps'] : ['quads', 'hamstrings', 'glutes', 'calves']
-            }));
-        } else {
-            // PPL
-            if (days <= 3) {
-                return [
-                    { name: 'Push (Heavy) + Pull (Light)', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps', 'back', 'biceps'] },
-                    { name: 'Legs (Heavy) + Push (Light)', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves', 'chest'] },
-                    { name: 'Pull (Heavy) + Legs (Light)', heavyFocus: ['pull'], muscles: ['back', 'biceps', 'hamstrings', 'glutes'] }
-                ].slice(0, days);
-            } else if (days <= 5) {
-                return [
-                    { name: 'Push', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps'] },
-                    { name: 'Pull', heavyFocus: ['pull'], muscles: ['back', 'biceps'] },
-                    { name: 'Legs', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] },
-                    { name: 'Upper', heavyFocus: [], muscles: ['chest', 'back', 'shoulders'] },
-                    { name: 'Lower', heavyFocus: [], muscles: ['quads', 'hamstrings', 'glutes'] }
-                ].slice(0, days);
-            } else {
-                return [
-                    { name: 'Push', heavyFocus: ['push'], muscles: ['chest', 'shoulders', 'triceps'] },
-                    { name: 'Pull', heavyFocus: ['pull'], muscles: ['back', 'biceps'] },
-                    { name: 'Legs', heavyFocus: ['legs'], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] },
-                    { name: 'Push', heavyFocus: [], muscles: ['chest', 'shoulders', 'triceps'] },
-                    { name: 'Pull', heavyFocus: [], muscles: ['back', 'biceps'] },
-                    { name: 'Legs', heavyFocus: [], muscles: ['quads', 'hamstrings', 'glutes', 'calves'] }
-                ].slice(0, days);
-            }
         }
+        
+        // Build flat structure from all weeks for rotating splits
+        const structure = [];
+        const rotationWeeks = cachedScheduleData.rotation_weeks || 1;
+        
+        cachedScheduleData.weeks.forEach((week, weekIdx) => {
+            week.days.forEach((day, dayIdx) => {
+                // For rotation splits, we need separate slots for each week pattern
+                const weekPattern = rotationWeeks > 1 ? String(week.week_number) : null;
+                
+                // Collect all muscle groups from focuses
+                const muscles = new Set();
+                const heavyFocus = [];
+                day.focuses.forEach(focus => {
+                    (focus.muscle_groups || []).forEach(m => muscles.add(m));
+                    if (focus.is_heavy) heavyFocus.push(focus.name.toLowerCase());
+                });
+                
+                structure.push({
+                    name: day.name || day.display_name,
+                    heavyFocus: heavyFocus,
+                    muscles: Array.from(muscles),
+                    week_pattern: weekPattern,
+                    day_number: day.day_number,
+                    focuses: day.focuses
+                });
+            });
+        });
+        
+        return structure;
+    }
+    
+    // Legacy function for compatibility
+    function getWorkoutStructure() {
+        return getWorkoutStructureFromCache();
     }
     
     function getDefaultDayAssignments(numWorkouts) {
@@ -497,19 +512,67 @@
         });
     }
     
-    function updateScheduleGrid() {
+    async function updateScheduleGrid() {
         const grid = document.getElementById('schedule-grid');
-        const structure = getWorkoutStructure();
-        const defaultDays = getDefaultDayAssignments(structure.length);
         
-        cycleConfig.schedule = structure.map((workout, i) => ({
-            workoutIndex: i,
-            dayOfWeek: defaultDays[i],
-            workoutName: workout.name,
-            heavyFocus: workout.heavyFocus,
-            muscles: workout.muscles,
-            isCustom: workout.isCustom || false
-        }));
+        // Show loading state
+        grid.innerHTML = '<div class="text-center text-gray-500 py-4">Loading schedule...</div>';
+        
+        // Fetch structure from API
+        const scheduleData = await fetchWorkoutStructure();
+        
+        if (!scheduleData) {
+            grid.innerHTML = '<div class="text-center text-red-400 py-4">Failed to load schedule</div>';
+            return;
+        }
+        
+        // Store rotation info
+        cycleConfig.rotationWeeks = scheduleData.rotation_weeks || 1;
+        
+        const structure = getWorkoutStructureFromCache();
+        const defaultDays = getDefaultDayAssignments(cycleConfig.daysPerWeek);
+        
+        // For rotating splits, we have multiple slots per week pattern
+        // Group them by week_pattern for display
+        if (cycleConfig.rotationWeeks > 1) {
+            // Create schedule entries with week_pattern
+            cycleConfig.schedule = [];
+            let dayAssignmentIdx = 0;
+            
+            scheduleData.weeks.forEach((week, weekIdx) => {
+                week.days.forEach((day, dayIdx) => {
+                    const muscles = new Set();
+                    const heavyFocus = [];
+                    day.focuses.forEach(focus => {
+                        (focus.muscle_groups || []).forEach(m => muscles.add(m));
+                        if (focus.is_heavy) heavyFocus.push(focus.name.toLowerCase());
+                    });
+                    
+                    cycleConfig.schedule.push({
+                        workoutIndex: cycleConfig.schedule.length,
+                        dayOfWeek: defaultDays[dayIdx % defaultDays.length],
+                        workoutName: day.name || day.display_name,
+                        heavyFocus: heavyFocus,
+                        muscles: Array.from(muscles),
+                        isCustom: cycleConfig.splitType === 'custom',
+                        week_pattern: String(week.week_number),
+                        focuses: day.focuses
+                    });
+                });
+            });
+        } else {
+            // Non-rotating: simple 1:1 mapping
+            cycleConfig.schedule = structure.map((workout, i) => ({
+                workoutIndex: i,
+                dayOfWeek: defaultDays[i % defaultDays.length],
+                workoutName: workout.name,
+                heavyFocus: workout.heavyFocus,
+                muscles: workout.muscles,
+                isCustom: workout.isCustom || cycleConfig.splitType === 'custom',
+                week_pattern: null,
+                focuses: workout.focuses
+            }));
+        }
         
         // Reset weekly exercises
         cycleConfig.weeklyExercises = {};
@@ -524,32 +587,48 @@
         // Update step 2 hint text
         document.getElementById('step2-drag-hint').textContent = isCustom ? 'Name your workouts and assign days.' : 'Drag to reorder.';
         
-        // Sort by day of week for display
-        const sortedSchedule = [...cycleConfig.schedule].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        // Check if this is a rotating split
+        const rotationWeeks = cycleConfig.rotationWeeks || 1;
         
-        grid.innerHTML = sortedSchedule.map((workout, displayIdx) => {
-            const originalIdx = cycleConfig.schedule.indexOf(workout);
+        if (rotationWeeks > 1) {
+            // Group schedule by week_pattern
+            const weekGroups = {};
+            cycleConfig.schedule.forEach((workout, idx) => {
+                const week = workout.week_pattern || '1';
+                if (!weekGroups[week]) weekGroups[week] = [];
+                weekGroups[week].push({ ...workout, originalIdx: idx });
+            });
             
-            if (isCustom) {
-                // Custom split: editable name field
-                return `
-                <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all"
-                     data-schedule-idx="${originalIdx}">
-                    <div class="flex-1 flex items-center gap-3">
-                        <input type="text" 
-                               value="${workout.workoutName}"
-                               onchange="updateWorkoutName(${originalIdx}, this.value)"
-                               placeholder="Workout name"
-                               class="flex-1 bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
-                    </div>
-                    <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
-                            class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
-                        ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
-                    </select>
+            const weekNumbers = Object.keys(weekGroups).sort((a, b) => parseInt(a) - parseInt(b));
+            
+            // Initialize selected week if not set
+            if (!cycleConfig.selectedScheduleWeek) {
+                cycleConfig.selectedScheduleWeek = weekNumbers[0] || '1';
+            }
+            
+            // Build week tabs
+            let html = `
+                <div class="flex gap-2 mb-4 border-b border-dark-600 pb-3">
+                    ${weekNumbers.map(week => `
+                        <button onclick="selectScheduleWeek('${week}')"
+                                class="px-4 py-2 rounded-lg text-sm font-medium transition-colors
+                                       ${cycleConfig.selectedScheduleWeek === week 
+                                         ? 'bg-accent text-dark-900' 
+                                         : 'bg-dark-700 text-gray-400 hover:text-gray-200'}">
+                            Week ${week}
+                        </button>
+                    `).join('')}
                 </div>
+                <p class="text-xs text-gray-500 mb-3">${rotationWeeks}-week rotation pattern. Configure each week's schedule.</p>
             `;
-            } else {
-                // Predefined split: draggable with fixed names
+            
+            // Show workouts for selected week only
+            const selectedWeekWorkouts = weekGroups[cycleConfig.selectedScheduleWeek] || [];
+            const sortedSchedule = [...selectedWeekWorkouts].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+            
+            html += `<div class="space-y-3">`;
+            html += sortedSchedule.map((workout) => {
+                const originalIdx = workout.originalIdx;
                 return `
                 <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all cursor-grab active:cursor-grabbing"
                      draggable="true"
@@ -566,15 +645,76 @@
                     </div>
                     <div class="flex-1">
                         <p class="font-medium text-gray-100">${workout.workoutName}</p>
-                        <p class="text-xs text-gray-500">${workout.muscles.slice(0, 3).join(', ')}</p>
+                        <p class="text-xs text-gray-500">${(workout.muscles || []).slice(0, 3).join(', ')}</p>
                     </div>
                     <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
                             class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
                         ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
                     </select>
                 </div>
-            `};
-        }).join('');
+                `;
+            }).join('');
+            html += `</div>`;
+            
+            grid.innerHTML = html;
+        } else {
+            // Non-rotating split: original behavior
+            const sortedSchedule = [...cycleConfig.schedule].sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+            
+            grid.innerHTML = sortedSchedule.map((workout, displayIdx) => {
+                const originalIdx = cycleConfig.schedule.indexOf(workout);
+                
+                if (isCustom) {
+                    // Custom split: editable name field
+                    return `
+                    <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all"
+                         data-schedule-idx="${originalIdx}">
+                        <div class="flex-1 flex items-center gap-3">
+                            <input type="text" 
+                                   value="${workout.workoutName}"
+                                   onchange="updateWorkoutName(${originalIdx}, this.value)"
+                                   placeholder="Workout name"
+                                   class="flex-1 bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
+                        </div>
+                        <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
+                                class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
+                            ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
+                        </select>
+                    </div>
+                `;
+                } else {
+                    // Predefined split: draggable with fixed names
+                    return `
+                    <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all cursor-grab active:cursor-grabbing"
+                         draggable="true"
+                         data-schedule-idx="${originalIdx}"
+                         ondragstart="onScheduleDragStart(event, ${originalIdx})"
+                         ondragend="onScheduleDragEnd(event)"
+                         ondragover="onScheduleDragOver(event)"
+                         ondragleave="onScheduleDragLeave(event)"
+                         ondrop="onScheduleDrop(event, ${originalIdx})">
+                        <div class="text-gray-600 drag-handle">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8h16M4 16h16"/>
+                            </svg>
+                        </div>
+                        <div class="flex-1">
+                            <p class="font-medium text-gray-100">${workout.workoutName}</p>
+                            <p class="text-xs text-gray-500">${(workout.muscles || []).slice(0, 3).join(', ')}</p>
+                        </div>
+                        <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
+                                class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
+                            ${dayNames.map((name, d) => `<option value="${d}" ${workout.dayOfWeek === d ? 'selected' : ''}>${name}</option>`).join('')}
+                        </select>
+                    </div>
+                `};
+            }).join('');
+        }
+    }
+    
+    function selectScheduleWeek(week) {
+        cycleConfig.selectedScheduleWeek = week;
+        renderScheduleGrid();
     }
     
     function updateWorkoutName(scheduleIdx, newName) {
@@ -819,18 +959,39 @@
         const container = document.getElementById('exercises-review');
         const structure = getWorkoutStructure();
         const isCustom = isCustomSplit();
+        const rotationWeeks = cycleConfig.rotationWeeks || 1;
         
         // Initialize this week's exercises if not exists
         if (!cycleConfig.weeklyExercises[currentWeek]) {
             cycleConfig.weeklyExercises[currentWeek] = {};
         }
         
-        // Sort schedule by day of week for display
-        const sortedSchedule = cycleConfig.schedule
-            .map((s, idx) => ({ ...s, originalIdx: idx }))
-            .sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        // For rotating splits, determine which week_pattern applies to this calendar week
+        // Week 1 -> pattern "1", Week 2 -> pattern "2", Week 3 -> pattern "1" (for 2-week rotation), etc.
+        let relevantWeekPattern = null;
+        if (rotationWeeks > 1) {
+            const patternIndex = ((currentWeek - 1) % rotationWeeks) + 1;
+            relevantWeekPattern = String(patternIndex);
+        }
         
-        container.innerHTML = sortedSchedule.map((scheduleItem) => {
+        // Filter and sort schedule by day of week for display
+        let scheduleToShow = cycleConfig.schedule
+            .map((s, idx) => ({ ...s, originalIdx: idx }));
+        
+        // For rotating splits, filter to only show workouts for this week's pattern
+        if (relevantWeekPattern !== null) {
+            scheduleToShow = scheduleToShow.filter(s => s.week_pattern === relevantWeekPattern);
+        }
+        
+        scheduleToShow = scheduleToShow.sort((a, b) => a.dayOfWeek - b.dayOfWeek);
+        
+        // Show info about rotation if applicable
+        let rotationInfo = '';
+        if (rotationWeeks > 1) {
+            rotationInfo = `<p class="text-xs text-accent mb-3">Week ${currentWeek} uses pattern "${relevantWeekPattern}" (${rotationWeeks}-week rotation)</p>`;
+        }
+        
+        container.innerHTML = rotationInfo + scheduleToShow.map((scheduleItem) => {
             const wIdx = scheduleItem.originalIdx;
             const workout = structure[scheduleItem.workoutIndex] || { name: scheduleItem.workoutName, muscles: scheduleItem.muscles };
             
@@ -1239,13 +1400,14 @@
         btn.textContent = 'Creating...';
         
         try {
-            // Build workout_slots from schedule, including per-week exercises
+            // Build workout_slots from schedule, including per-week exercises and week_pattern
             const workout_slots = cycleConfig.schedule.map((s, idx) => ({
                 day_of_week: s.dayOfWeek,
                 template_id: null,
                 workout_name: s.workoutName,
                 is_heavy_focus: s.heavyFocus,
                 order_index: idx,
+                week_pattern: s.week_pattern || null,  // Include week pattern for rotating splits
                 // For the API, we'll send Week 1's exercises as the base
                 // The backend will need to handle per-week exercise variations
                 exercises: (cycleConfig.weeklyExercises[1] && cycleConfig.weeklyExercises[1][idx] || []).map((ex, exIdx) => ({
@@ -1296,6 +1458,7 @@
                     split_type: cycleConfig.splitType,
                     length_weeks: cycleConfig.lengthWeeks,
                     start_date: cycleConfig.startDate,
+                    rotation_weeks: cycleConfig.rotationWeeks || 1,  // Include rotation info
                     workout_slots: workout_slots,
                     weekly_exercises: weekly_exercises
                 })
