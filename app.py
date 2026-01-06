@@ -308,6 +308,10 @@ def progress():
     # Get date range
     start_date, end_date = db_progress.get_date_range_for_timeframe(timeframe, user['id'])
     
+    # Get user's profile for target days per week
+    profile = db.get_user_profile(user['id'])
+    days_per_week = profile.get('days_per_week', 3) if profile else 3
+    
     # Get user's exercises for selector
     user_exercises = db_progress.get_user_exercises(user['id'])
     
@@ -328,17 +332,19 @@ def progress():
         'avg_volume_per_workout': avg_volume
     }
     
-    # Get consistency stats
-    consistency_stats = db_progress.get_consistency_stats(user['id'], start_date, end_date)
+    # Get consistency stats (pass target days per week)
+    consistency_stats = db_progress.get_consistency_stats(
+        user['id'], start_date, end_date, 
+        target_days_per_week=days_per_week
+    )
     
     # Get calendar heatmap data
     calendar_data = db_progress.get_calendar_heatmap_data(user['id'])
     
-    # Calculate weekly completion rates for chart
-    consistency_by_week = calculate_weekly_completion_rates(user['id'], weeks=12)
+    # Calculate weekly workout counts for chart (not completion rates)
+    workouts_by_week = calculate_workouts_per_week(user['id'], weeks=12)
     
     # Get PR data
-    profile = db.get_user_profile(user['id'])
     pr_threshold = profile.get('pr_rep_threshold', 5) if profile else 5
     
     all_prs = db_progress.get_personal_records(user['id'])
@@ -352,11 +358,50 @@ def progress():
                          volume_stats=volume_stats,
                          consistency_stats=consistency_stats,
                          calendar_data=calendar_data,
-                         consistency_by_week=consistency_by_week,
+                         workouts_by_week=workouts_by_week,
+                         days_per_week=days_per_week,
                          pr_threshold=pr_threshold,
                          all_prs=all_prs,
                          recent_prs=recent_prs)
 
+def calculate_workouts_per_week(user_id: str, weeks: int = 12):
+    """Calculate actual workout count per week for the chart."""
+    from datetime import date, timedelta
+    
+    supabase = db.get_supabase_client()
+    end_date = date.today()
+    start_date = end_date - timedelta(weeks=weeks)
+    
+    # Get completed workouts
+    workouts = supabase.table('user_workouts')\
+        .select('completed_at')\
+        .eq('user_id', user_id)\
+        .not_.is_('completed_at', 'null')\
+        .gte('completed_at', start_date.isoformat())\
+        .lte('completed_at', end_date.isoformat())\
+        .execute()
+    
+    # Group by week
+    weeks_data = {}
+    for w in workouts.data or []:
+        if w['completed_at']:
+            d = datetime.strptime(w['completed_at'][:10], '%Y-%m-%d').date()
+            week_start = d - timedelta(days=d.weekday())
+            week_key = week_start.isoformat()
+            weeks_data[week_key] = weeks_data.get(week_key, 0) + 1
+    
+    # Fill in missing weeks with 0
+    result = []
+    current = start_date - timedelta(days=start_date.weekday())  # Start from Monday
+    while current <= end_date:
+        week_key = current.isoformat()
+        result.append({
+            'week': week_key,
+            'count': weeks_data.get(week_key, 0)
+        })
+        current += timedelta(weeks=1)
+    
+    return result
 
 def calculate_weekly_completion_rates(user_id: str, weeks: int = 12):
     """Calculate completion rate per week for the chart."""

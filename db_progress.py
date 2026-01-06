@@ -233,59 +233,79 @@ def get_volume_summary_by_week(user_id: str, weeks: int = 8):
 # CONSISTENCY TRACKING QUERIES
 # ============================================
 
-def get_consistency_stats(user_id: str, start_date: date = None, end_date: date = None):
+def get_consistency_stats(user_id: str, start_date: date = None, end_date: date = None, target_days_per_week: int = 3):
     """
     Calculate workout consistency metrics.
-    Returns completion rate, streak info, and calendar data.
+    Returns completion rate based on actual workouts vs target days per week.
+    Uses the user's first workout date as the baseline (not arbitrary timeframes).
     """
     supabase = get_supabase_client()
     
     if not end_date:
         end_date = date.today()
     if not start_date:
-        start_date = end_date - timedelta(days=365)  # Default to 1 year
+        start_date = end_date - timedelta(days=365)
     
-    # Get scheduled workouts
-    scheduled_query = supabase.table('scheduled_workouts')\
-        .select('scheduled_date, status')\
-        .eq('user_id', user_id)\
-        .gte('scheduled_date', start_date.isoformat())\
-        .lte('scheduled_date', end_date.isoformat())
-    
-    scheduled_response = scheduled_query.execute()
-    scheduled = scheduled_response.data or []
-    
-    # Get completed workouts (for users who might not use scheduling)
+    # Get completed workouts
     workouts_query = supabase.table('user_workouts')\
         .select('completed_at')\
         .eq('user_id', user_id)\
         .not_.is_('completed_at', 'null')\
         .gte('completed_at', start_date.isoformat())\
-        .lte('completed_at', end_date.isoformat())
+        .lte('completed_at', end_date.isoformat())\
+        .order('completed_at')
     
     workouts_response = workouts_query.execute()
     completed_workouts = workouts_response.data or []
     
-    # Calculate completion rate from scheduled
-    total_scheduled = len(scheduled)
-    completed_scheduled = sum(1 for s in scheduled if s.get('status') == 'completed')
-    completion_rate = round((completed_scheduled / total_scheduled * 100) if total_scheduled > 0 else 0)
+    if not completed_workouts:
+        return {
+            'completion_rate': 0,
+            'total_workouts': 0,
+            'target_workouts': 0,
+            'weeks_active': 0,
+            'total_weeks': 0,
+            'current_streak': 0,
+            'longest_streak': 0,
+            'calendar_data': {}
+        }
     
-    # Build calendar heatmap data (workouts per day)
+    # Use the FIRST workout date as the actual start (not arbitrary timeframe)
+    first_workout_str = completed_workouts[0]['completed_at'][:10]
+    first_workout_date = datetime.strptime(first_workout_str, '%Y-%m-%d').date()
+    
+    # Effective start is the later of: timeframe start OR first workout
+    effective_start = max(start_date, first_workout_date)
+    
+    # Calculate weeks from effective start to end
+    total_weeks = max(1, ((end_date - effective_start).days // 7) + 1)
+    
+    # Calculate completion rate
+    total_workouts = len(completed_workouts)
+    target_workouts = total_weeks * target_days_per_week
+    completion_rate = round((total_workouts / target_workouts * 100) if target_workouts > 0 else 0)
+    completion_rate = min(100, completion_rate)
+    
+    # Group workouts by week for weeks_active count
+    weeks_with_workouts = set()
     workout_dates = {}
     for w in completed_workouts:
-        date_str = w['completed_at'][:10] if w['completed_at'] else None
-        if date_str:
+        if w['completed_at']:
+            date_str = w['completed_at'][:10]
+            workout_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+            week_start = workout_date - timedelta(days=workout_date.weekday())
+            weeks_with_workouts.add(week_start.isoformat())
             workout_dates[date_str] = workout_dates.get(date_str, 0) + 1
     
-    # Calculate current streak
+    # Calculate streak
     streak = calculate_streak(user_id, supabase)
     
     return {
         'completion_rate': completion_rate,
-        'total_scheduled': total_scheduled,
-        'total_completed': completed_scheduled,
-        'total_workouts': len(completed_workouts),
+        'total_workouts': total_workouts,
+        'target_workouts': target_workouts,
+        'weeks_active': len(weeks_with_workouts),
+        'total_weeks': total_weeks,
         'current_streak': streak['current'],
         'longest_streak': streak['longest'],
         'calendar_data': workout_dates
@@ -374,16 +394,14 @@ def calculate_streak(user_id: str, supabase=None):
     return {'current': current_streak, 'longest': longest_streak}
 
 
-def get_calendar_heatmap_data(user_id: str, year: int = None):
+def get_calendar_heatmap_data(user_id: str, days: int = 365):
     """
     Get workout counts by day for calendar heatmap visualization.
     Returns dict mapping date strings to workout counts.
+    Queries last N days (default 365) to match the heatmap display.
     """
-    if not year:
-        year = date.today().year
-    
-    start_date = date(year, 1, 1)
-    end_date = date(year, 12, 31)
+    end_date = date.today()
+    start_date = end_date - timedelta(days=days)
     
     supabase = get_supabase_client()
     
