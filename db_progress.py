@@ -619,3 +619,54 @@ def get_date_range_for_timeframe(timeframe: str, user_id: str = None):
     
     else:  # 'all' or default
         return date(2020, 1, 1), today  # Arbitrary early date
+    
+    
+def backfill_personal_records(user_id: str):
+    """
+    Scan all completed workout sets and establish baseline PRs.
+    Useful for users with existing data or after dummy data generation.
+    """
+    supabase = get_supabase_client()
+    
+    # Get user's PR threshold
+    profile = supabase.table('profiles').select('pr_rep_threshold').eq('id', user_id).limit(1).execute()
+    threshold = profile.data[0].get('pr_rep_threshold', 5) if profile.data else 5
+    
+    # Get all completed sets with workout dates
+    sets = supabase.table('workout_sets')\
+        .select('exercise_id, exercise_name, weight, reps, user_workouts!inner(user_id, completed_at)')\
+        .eq('user_workouts.user_id', user_id)\
+        .eq('completed', True)\
+        .lte('reps', threshold)\
+        .not_.is_('user_workouts.completed_at', 'null')\
+        .execute()
+    
+    # Find best weight per exercise
+    best_by_exercise = {}
+    for s in sets.data or []:
+        ex_id = s['exercise_id']
+        weight = s['weight'] or 0
+        if ex_id not in best_by_exercise or weight > best_by_exercise[ex_id]['weight']:
+            best_by_exercise[ex_id] = {
+                'exercise_id': ex_id,
+                'exercise_name': s['exercise_name'],
+                'weight': weight,
+                'reps': s['reps'],
+                'achieved_at': s['user_workouts']['completed_at']
+            }
+    
+    # Insert PRs
+    for ex_id, pr in best_by_exercise.items():
+        # Check if PR already exists
+        existing = supabase.table('personal_records').select('id').eq('user_id', user_id).eq('exercise_id', ex_id).execute()
+        if not existing.data:
+            supabase.table('personal_records').insert({
+                'user_id': user_id,
+                'exercise_id': pr['exercise_id'],
+                'exercise_name': pr['exercise_name'],
+                'weight': pr['weight'],
+                'reps': pr['reps'],
+                'achieved_at': pr['achieved_at']
+            }).execute()
+    
+    return len(best_by_exercise)

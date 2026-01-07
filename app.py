@@ -348,7 +348,15 @@ def progress():
     pr_threshold = profile.get('pr_rep_threshold', 5) if profile else 5
     
     all_prs = db_progress.get_personal_records(user['id'])
-    recent_prs = db_progress.get_recent_prs(user['id'], days=30)
+    # Add is_recent flag to each PR
+    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    for pr in all_prs:
+        if pr.get('achieved_at'):
+            # Parse the date string
+            achieved = datetime.fromisoformat(pr['achieved_at'].replace('Z', '+00:00').replace('+00:00', ''))
+            pr['is_recent'] = achieved > thirty_days_ago
+        else:
+            pr['is_recent'] = False
     
     return render_template('progress.html',
                          user=user,
@@ -361,8 +369,7 @@ def progress():
                          workouts_by_week=workouts_by_week,
                          days_per_week=days_per_week,
                          pr_threshold=pr_threshold,
-                         all_prs=all_prs,
-                         recent_prs=recent_prs)
+                         all_prs=all_prs)
 
 def calculate_workouts_per_week(user_id: str, weeks: int = 12):
     """Calculate actual workout count per week for the chart."""
@@ -1409,6 +1416,14 @@ def api_profile_settings():
     data = request.json
     print(f"Profile settings update request: {data}")
     
+    # Handle pr_rep_threshold directly
+    if 'pr_rep_threshold' in data:
+        result = db.update_user_profile(user['id'], {'pr_rep_threshold': data['pr_rep_threshold']})
+        print(f"PR threshold update result: {result}")
+        if result:
+            return jsonify({'success': True, 'pr_rep_threshold': data['pr_rep_threshold']})
+        return jsonify({'error': 'Failed to update PR threshold'}), 500
+
     try:
         result = db_cycles.update_profile_training_settings(
             user_id=user['id'],

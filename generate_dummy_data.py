@@ -4,6 +4,8 @@ Dummy Data Generator for Progress Dashboard Testing
 This script creates a test user and generates 6-8 weeks of realistic
 workout data with progressive overload patterns.
 
+Includes heavy compound sets (3-5 reps) for PR tracking.
+
 Run this script locally with your Supabase credentials to populate test data.
 """
 
@@ -24,8 +26,8 @@ WORKOUTS_PER_WEEK = 3  # PPL x2 compressed to 3 days
 # Realistic starting weights and progression for common exercises
 EXERCISE_BASELINES = {
     # Compounds - heavier, slower progression
-    'Barbell Bench Press': {'start': 135, 'increment': 5, 'variance': 5, 'rep_range': (5, 8)},
-    'Barbell Back Squat': {'start': 185, 'increment': 5, 'variance': 10, 'rep_range': (5, 8)},
+    'Barbell Bench Press': {'start': 135, 'increment': 5, 'variance': 5, 'rep_range': (6, 10)},
+    'Barbell Back Squat': {'start': 185, 'increment': 5, 'variance': 10, 'rep_range': (6, 10)},
     'Barbell Row': {'start': 135, 'increment': 5, 'variance': 5, 'rep_range': (6, 10)},
     'Overhead Press': {'start': 95, 'increment': 2.5, 'variance': 5, 'rep_range': (6, 10)},
     'Romanian Deadlift': {'start': 155, 'increment': 5, 'variance': 10, 'rep_range': (8, 10)},
@@ -46,89 +48,103 @@ EXERCISE_BASELINES = {
     'Lateral Raise': {'start': 15, 'increment': 2.5, 'variance': 2.5, 'rep_range': (10, 15)},
     'Lying Leg Curl': {'start': 70, 'increment': 5, 'variance': 5, 'rep_range': (10, 15)},
     'Leg Extension': {'start': 90, 'increment': 5, 'variance': 10, 'rep_range': (10, 15)},
-    'Standing Calf Raise': {'start': 135, 'increment': 10, 'variance': 10, 'rep_range': (12, 20)},
+    'Standing Calf Raise': {'start': 135, 'increment': 5, 'variance': 10, 'rep_range': (12, 20)},
 }
 
-# PPL x2 compressed - 3 day split
+# Heavy compound settings for PR-eligible sets (3-5 reps)
+HEAVY_COMPOUNDS = {
+    'Barbell Bench Press': {'start': 185, 'increment': 5, 'variance': 5},
+    'Barbell Back Squat': {'start': 225, 'increment': 10, 'variance': 10},
+    'Barbell Row': {'start': 165, 'increment': 5, 'variance': 5},
+    'Overhead Press': {'start': 115, 'increment': 2.5, 'variance': 5},
+    'Leg Press': {'start': 360, 'increment': 20, 'variance': 20},
+}
+
+# Workout templates (PPL compressed to 3 days)
 WORKOUT_TEMPLATES = [
     {
         'name': 'Push + Pull',
         'exercises': [
             ('Barbell Bench Press', 4),
-            ('Barbell Row', 4),
             ('Overhead Press', 3),
-            ('Lat Pulldown', 3),
             ('Cable Fly', 3),
-            ('Face Pull', 3),
             ('Tricep Pushdown', 3),
+            ('Barbell Row', 4),
+            ('Lat Pulldown', 3),
+            ('Face Pull', 3),
             ('Barbell Curl', 3),
-        ]
+        ],
+        'heavy_compound': 'Barbell Bench Press'  # Do heavy sets of this
     },
     {
         'name': 'Legs + Push',
         'exercises': [
             ('Barbell Back Squat', 4),
             ('Romanian Deadlift', 3),
-            ('Incline Dumbbell Press', 3),
             ('Leg Press', 3),
-            ('Lateral Raise', 3),
             ('Lying Leg Curl', 3),
-            ('Standing Calf Raise', 4),
-        ]
+            ('Incline Dumbbell Press', 3),
+            ('Lateral Raise', 3),
+            ('Tricep Pushdown', 3),
+        ],
+        'heavy_compound': 'Barbell Back Squat'
     },
     {
         'name': 'Pull + Legs',
         'exercises': [
-            ('Pull-Up', 4),
-            ('Barbell Hip Thrust', 4),
+            ('Barbell Row', 4),
+            ('Pull-Up', 3),
             ('Seated Cable Row', 3),
-            ('Walking Lunge', 3),
-            ('Face Pull', 3),
-            ('Leg Extension', 3),
             ('Hammer Curl', 3),
-        ]
-    }
+            ('Leg Press', 3),
+            ('Walking Lunge', 3),
+            ('Standing Calf Raise', 3),
+        ],
+        'heavy_compound': 'Barbell Row'
+    },
 ]
 
 
 def get_supabase_client():
-    """Create Supabase client from environment variables."""
-    url = os.getenv('SUPABASE_URL')
-    key = os.getenv('SUPABASE_KEY')
+    """Create a Supabase client."""
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
     
     if not url or not key:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
+        raise ValueError("Missing SUPABASE_URL or SUPABASE_KEY in environment")
     
     return create_client(url, key)
 
 
 def create_test_user(supabase):
-    """Create the test user account."""
+    """Create a test user or get existing one."""
+    print("\nSetting up test user...")
+    
     try:
-        # Try to sign up
-        response = supabase.auth.sign_up({
+        # Try to sign in first
+        response = supabase.auth.sign_in_with_password({
             'email': TEST_USER_EMAIL,
             'password': TEST_USER_PASSWORD
         })
+        print(f"✓ Logged in as existing user: {TEST_USER_EMAIL}")
+        return response.user.id
         
-        if response.user:
-            print(f"✓ Created test user: {TEST_USER_EMAIL}")
-            return response.user.id
-        else:
-            raise Exception("No user returned from signup")
-            
     except Exception as e:
-        if 'already registered' in str(e).lower():
-            # User exists, try to sign in to get their ID
-            print(f"Test user already exists, signing in...")
-            response = supabase.auth.sign_in_with_password({
-                'email': TEST_USER_EMAIL,
-                'password': TEST_USER_PASSWORD
-            })
-            if response.user:
-                print(f"✓ Signed in as test user: {TEST_USER_EMAIL}")
+        if 'Invalid login credentials' in str(e):
+            # User doesn't exist, create them
+            try:
+                response = supabase.auth.sign_up({
+                    'email': TEST_USER_EMAIL,
+                    'password': TEST_USER_PASSWORD
+                })
+                print(f"✓ Created new user: {TEST_USER_EMAIL}")
                 return response.user.id
-        raise e
+            except Exception as signup_error:
+                print(f"✗ Failed to create user: {signup_error}")
+                raise
+        else:
+            print(f"✗ Login error: {e}")
+            raise
 
 
 def ensure_profile_exists(supabase, user_id):
@@ -169,14 +185,16 @@ def get_exercise_id(supabase, exercise_name):
     return None
 
 
-def calculate_weight_for_week(exercise_name, week_num):
+def calculate_weight_for_week(exercise_name, week_num, is_heavy=False):
     """Calculate weight for an exercise in a given week with progression."""
-    baseline = EXERCISE_BASELINES.get(exercise_name)
+    if is_heavy and exercise_name in HEAVY_COMPOUNDS:
+        baseline = HEAVY_COMPOUNDS[exercise_name]
+    else:
+        baseline = EXERCISE_BASELINES.get(exercise_name)
+    
     if not baseline:
-        # Default for unknown exercises
         return random.randint(20, 100)
     
-    # Base weight with weekly progression
     base = baseline['start']
     increment = baseline['increment']
     variance = baseline['variance']
@@ -195,8 +213,13 @@ def calculate_weight_for_week(exercise_name, week_num):
         return round(final_weight / 5) * 5
 
 
-def calculate_reps_for_set(exercise_name, set_num, total_sets):
+def calculate_reps_for_set(exercise_name, set_num, total_sets, is_heavy=False):
     """Calculate reps for a set - typically decreasing as fatigue builds."""
+    if is_heavy:
+        # Heavy sets: 3-5 reps
+        base_reps = 5 - (set_num - 1)  # 5, 4, 3 pattern
+        return max(3, min(5, base_reps + random.randint(-1, 1)))
+    
     baseline = EXERCISE_BASELINES.get(exercise_name)
     if not baseline:
         return random.randint(8, 12)
@@ -204,48 +227,42 @@ def calculate_reps_for_set(exercise_name, set_num, total_sets):
     rep_low, rep_high = baseline['rep_range']
     
     # First sets get more reps, later sets fewer (fatigue)
-    fatigue_factor = set_num / total_sets  # 0 to 1
+    fatigue_factor = set_num / total_sets
     base_reps = rep_high - int((rep_high - rep_low) * fatigue_factor)
     
-    # Add some variance
     return max(rep_low, base_reps + random.randint(-1, 1))
 
 
 def generate_dummy_workouts(supabase, user_id):
-    """Generate weeks of workout data."""
+    """Generate weeks of workout data with heavy compound sets."""
     print(f"\nGenerating {WEEKS_OF_DATA} weeks of workout data...")
     
-    # Start date - go back WEEKS_OF_DATA weeks from today
     today = date.today()
     start_date = today - timedelta(weeks=WEEKS_OF_DATA)
-    
-    # Find the Monday of that week
     start_monday = start_date - timedelta(days=start_date.weekday())
     
     workouts_created = 0
     sets_created = 0
+    heavy_sets_created = 0
     
     for week in range(WEEKS_OF_DATA):
         week_start = start_monday + timedelta(weeks=week)
         
-        # Generate 3 workouts this week (Mon, Wed, Fri typically)
         workout_days = [0, 2, 4]  # Monday, Wednesday, Friday
         
         for day_idx, day_offset in enumerate(workout_days):
             workout_date = week_start + timedelta(days=day_offset)
             
-            # Skip future dates
             if workout_date > today:
                 continue
             
-            # Occasionally skip a workout (90% completion rate)
+            # 90% completion rate
             if random.random() > 0.90:
                 continue
             
             template = WORKOUT_TEMPLATES[day_idx]
             workout_time = datetime.combine(workout_date, datetime.min.time().replace(hour=random.randint(6, 19)))
             
-            # Create workout
             workout_response = supabase.table('user_workouts').insert({
                 'user_id': user_id,
                 'template_name': template['name'],
@@ -260,35 +277,85 @@ def generate_dummy_workouts(supabase, user_id):
             workout_id = workout_response.data[0]['id']
             workouts_created += 1
             
-            # Generate sets for each exercise
+            heavy_compound = template.get('heavy_compound')
+            
             for exercise_name, num_sets in template['exercises']:
                 exercise_id = get_exercise_id(supabase, exercise_name)
                 
-                weight = calculate_weight_for_week(exercise_name, week)
+                # Check if this is the heavy compound for this workout
+                is_heavy_exercise = (exercise_name == heavy_compound and exercise_name in HEAVY_COMPOUNDS)
                 
-                for set_num in range(1, num_sets + 1):
-                    reps = calculate_reps_for_set(exercise_name, set_num, num_sets)
+                if is_heavy_exercise:
+                    # Generate 2-3 heavy sets (3-5 reps) first
+                    heavy_set_count = random.randint(2, 3)
+                    heavy_weight = calculate_weight_for_week(exercise_name, week, is_heavy=True)
                     
-                    # Slight weight variation between sets
-                    set_weight = weight
-                    if set_num > 2 and random.random() > 0.7:
-                        set_weight = weight - 5  # Drop set
+                    for set_num in range(1, heavy_set_count + 1):
+                        reps = calculate_reps_for_set(exercise_name, set_num, heavy_set_count, is_heavy=True)
+                        
+                        # Slight weight variation between sets
+                        set_weight = heavy_weight
+                        if set_num > 1 and random.random() > 0.7:
+                            set_weight = heavy_weight - 5
+                        
+                        supabase.table('workout_sets').insert({
+                            'user_workout_id': workout_id,
+                            'exercise_id': exercise_id,
+                            'exercise_name': exercise_name,
+                            'set_number': set_num,
+                            'weight': max(0, set_weight),
+                            'reps': reps,
+                            'completed': True
+                        }).execute()
+                        
+                        sets_created += 1
+                        heavy_sets_created += 1
                     
-                    supabase.table('workout_sets').insert({
-                        'user_workout_id': workout_id,
-                        'exercise_id': exercise_id,
-                        'exercise_name': exercise_name,
-                        'set_number': set_num,
-                        'weight': max(0, set_weight),  # No negative weights
-                        'reps': reps,
-                        'completed': True
-                    }).execute()
+                    # Then add regular hypertrophy sets
+                    regular_sets = num_sets - heavy_set_count
+                    regular_weight = calculate_weight_for_week(exercise_name, week, is_heavy=False)
                     
-                    sets_created += 1
+                    for set_num in range(heavy_set_count + 1, num_sets + 1):
+                        reps = calculate_reps_for_set(exercise_name, set_num, num_sets, is_heavy=False)
+                        
+                        supabase.table('workout_sets').insert({
+                            'user_workout_id': workout_id,
+                            'exercise_id': exercise_id,
+                            'exercise_name': exercise_name,
+                            'set_number': set_num,
+                            'weight': max(0, regular_weight),
+                            'reps': reps,
+                            'completed': True
+                        }).execute()
+                        
+                        sets_created += 1
+                else:
+                    # Regular exercise - just hypertrophy sets
+                    weight = calculate_weight_for_week(exercise_name, week, is_heavy=False)
+                    
+                    for set_num in range(1, num_sets + 1):
+                        reps = calculate_reps_for_set(exercise_name, set_num, num_sets, is_heavy=False)
+                        
+                        set_weight = weight
+                        if set_num > 2 and random.random() > 0.7:
+                            set_weight = weight - 5
+                        
+                        supabase.table('workout_sets').insert({
+                            'user_workout_id': workout_id,
+                            'exercise_id': exercise_id,
+                            'exercise_name': exercise_name,
+                            'set_number': set_num,
+                            'weight': max(0, set_weight),
+                            'reps': reps,
+                            'completed': True
+                        }).execute()
+                        
+                        sets_created += 1
         
         print(f"  Week {week + 1}: Generated workouts")
     
     print(f"\n✓ Created {workouts_created} workouts with {sets_created} sets")
+    print(f"  Including {heavy_sets_created} heavy sets (3-5 reps) for PR tracking")
     return workouts_created, sets_created
 
 
@@ -296,24 +363,24 @@ def clear_test_user_data(supabase, user_id):
     """Clear existing workout data for the test user."""
     print("\nClearing existing test data...")
     
-    # Get all workouts for user
     workouts = supabase.table('user_workouts').select('id').eq('user_id', user_id).execute()
     
     if workouts.data:
         workout_ids = [w['id'] for w in workouts.data]
         
-        # Delete sets
         for wid in workout_ids:
             supabase.table('workout_sets').delete().eq('user_workout_id', wid).execute()
         
-        # Delete workouts
         supabase.table('user_workouts').delete().eq('user_id', user_id).execute()
         
         print(f"  ✓ Cleared {len(workout_ids)} existing workouts")
     
     # Clear PRs
     supabase.table('personal_records').delete().eq('user_id', user_id).execute()
-    supabase.table('pr_history').delete().eq('user_id', user_id).execute()
+    try:
+        supabase.table('pr_history').delete().eq('user_id', user_id).execute()
+    except:
+        pass  # pr_history table might not exist
     print("  ✓ Cleared PR data")
 
 
@@ -325,17 +392,12 @@ def main():
     
     supabase = get_supabase_client()
     
-    # Create or get test user
     user_id = create_test_user(supabase)
     print(f"User ID: {user_id}")
     
-    # Ensure profile exists
     ensure_profile_exists(supabase, user_id)
-    
-    # Clear existing data
     clear_test_user_data(supabase, user_id)
     
-    # Generate new dummy data
     workouts, sets = generate_dummy_workouts(supabase, user_id)
     
     print("\n" + "=" * 50)
@@ -346,7 +408,8 @@ def main():
     print(f"  Sets: {sets}")
     print("=" * 50)
     print("\nYou can now log in as the test user to see the progress dashboard!")
+    print("\nDon't forget to run the PR backfill SQL after this!")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
