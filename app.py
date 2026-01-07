@@ -5,6 +5,7 @@ from datetime import date, datetime, timedelta
 import db
 import db_cycles
 import db_progress
+import db_export
 import workout_generator
 
 app = Flask(__name__)
@@ -1765,6 +1766,79 @@ def api_skip_workout(scheduled_id):
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+
+# ============================================
+# EXPORT ROUTES
+# ============================================
+
+@app.route('/api/export/csv')
+@login_required
+def export_csv():
+    """Export workout data as CSV."""
+    user = get_current_user()
+    
+    # Parse date range from query params
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    
+    if start_date:
+        start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+    if end_date:
+        end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+    
+    # Generate CSV
+    csv_data = db_export.generate_csv(user['id'], start_date, end_date)
+    
+    # Create response with CSV
+    response = make_response(csv_data)
+    response.headers['Content-Type'] = 'text/csv'
+    
+    # Filename with date range
+    if start_date and end_date:
+        filename = f"workout_export_{start_date}_{end_date}.csv"
+    else:
+        filename = f"workout_export_all_time.csv"
+    
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    
+    return response
+
+
+@app.route('/api/export/pdf')
+@login_required
+def export_pdf():
+    """Export workout report as PDF."""
+    user = get_current_user()
+    
+    # Parse date range from query params
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+    
+    if start_date:
+        start_date = datetime.strptime(start_date, '%Y-%m-%d').date()
+    if end_date:
+        end_date = datetime.strptime(end_date, '%Y-%m-%d').date()
+    
+    # Get user name for report
+    profile = db.get_user_profile(user['id'])
+    user_name = profile.get('display_name', user['email'].split('@')[0]) if profile else user['email'].split('@')[0]
+    
+    # Generate PDF
+    pdf_data = db_export.generate_pdf(user['id'], user_name, start_date, end_date)
+    
+    # Create response with PDF
+    response = make_response(pdf_data)
+    response.headers['Content-Type'] = 'application/pdf'
+    
+    # Filename with date range
+    if start_date and end_date:
+        filename = f"workout_report_{start_date}_{end_date}.pdf"
+    else:
+        filename = f"workout_report_all_time.pdf"
+    
+    response.headers['Content-Disposition'] = f'attachment; filename={filename}'
+    
+    return response
 
 # ============================================
 # PWA ROUTES
