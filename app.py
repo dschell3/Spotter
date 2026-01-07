@@ -1923,6 +1923,16 @@ def export_pdf():
     
     return response
 
+"""
+Notification API Endpoints (Phase 5a)
+Add these routes to your app.py file
+
+Required imports to add at top of app.py:
+    import db_notifications
+    import notification_service
+"""
+
+
 # ============================================
 # NOTIFICATION PREFERENCES API
 # ============================================
@@ -2012,36 +2022,31 @@ def api_update_phone():
         )
         
         # Send welcome SMS if this is a new confirmed phone number
+        welcome_sms_result = None
         if is_new_phone:
-            send_welcome_sms(user, phone_clean)
+            profile = db.get_user_profile(user['id'])
+            user_name = profile.get('display_name') if profile else user['email'].split('@')[0]
+            
+            success, error = notification_service.send_welcome_sms(phone_clean, user_name)
+            
+            # Log the notification
+            db_notifications.log_notification(
+                user_id=user['id'],
+                notification_type='welcome_sms',
+                channel='sms',
+                status='sent' if success else 'failed',
+                error_message=error
+            )
+            
+            welcome_sms_result = {'sent': success, 'error': error}
         
-        return jsonify({'success': True, 'preferences': result})
+        return jsonify({
+            'success': True, 
+            'preferences': result,
+            'welcome_sms': welcome_sms_result
+        })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
-
-
-def send_welcome_sms(user, phone_number):
-    """
-    Send a welcome SMS when user first confirms their phone number.
-    This acts as soft verification - if they got it wrong, they'll tell us.
-    
-    TODO: Implement in Phase 5c with Twilio
-    """
-    # Placeholder until Twilio is set up
-    print(f"[TODO] Send welcome SMS to {phone_number} for user {user.get('email')}")
-    print(f"[TODO] Message: 'Welcome to Spotter! You'll now receive workout reminders at this number. Reply STOP to unsubscribe.'")
-    
-    # Log the attempt (even though it's not actually sent yet)
-    try:
-        db_notifications.log_notification(
-            user_id=user['id'],
-            notification_type='welcome_sms',
-            channel='sms',
-            status='pending',  # Will be 'sent' once Twilio is integrated
-            error_message='Twilio not yet configured'
-        )
-    except Exception as e:
-        print(f"Failed to log welcome SMS: {e}")
 
 
 @app.route('/api/notifications/history', methods=['GET'])
@@ -2389,6 +2394,55 @@ def test_notification_email():
     
     if success:
         return jsonify({'success': True, 'message': f'Test email sent to {user["email"]}'})
+    else:
+        return jsonify({'success': False, 'error': error}), 500
+
+
+@app.route('/api/cron/test-sms', methods=['POST'])
+@login_required
+def test_notification_sms():
+    """
+    Send a test SMS to the current user's phone.
+    For development/testing only.
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # Get user's phone number from notification preferences
+    prefs = db_notifications.get_notification_preferences(user['id'])
+    if not prefs or not prefs.get('phone_number'):
+        return jsonify({'error': 'No phone number configured'}), 400
+    
+    phone_number = prefs['phone_number']
+    
+    profile = db.get_user_profile(user['id'])
+    user_name = profile.get('display_name') if profile else user['email'].split('@')[0]
+    
+    data = request.json or {}
+    sms_type = data.get('type', 'workout_reminder')
+    
+    if sms_type == 'workout_reminder':
+        success, error = notification_service.send_workout_reminder_sms(
+            to_phone=phone_number,
+            user_name=user_name,
+            workout_name='Push Day (Test)'
+        )
+    elif sms_type == 'welcome':
+        success, error = notification_service.send_welcome_sms(
+            to_phone=phone_number,
+            user_name=user_name
+        )
+    elif sms_type == 'inactivity_month':
+        success, error = notification_service.send_inactivity_month_sms(
+            to_phone=phone_number,
+            user_name=user_name
+        )
+    else:
+        return jsonify({'error': 'Invalid SMS type'}), 400
+    
+    if success:
+        return jsonify({'success': True, 'message': f'Test SMS sent to {phone_number}'})
     else:
         return jsonify({'success': False, 'error': error}), 500
 

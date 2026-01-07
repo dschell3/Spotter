@@ -7,3 +7,4 @@ authlib==1.3.0
 requests==2.31.0
 resend>=0.7.0
 reportlab
+twilio>=8.0.0

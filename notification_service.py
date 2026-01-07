@@ -1,10 +1,13 @@
 """
-Notification Service (Phase 5b)
-Handles sending emails via Resend and SMS via Twilio (Phase 5c)
+Notification Service (Phase 5b + 5c)
+Handles sending emails via Resend and SMS via Twilio
 
 Required environment variables:
     RESEND_API_KEY=re_xxxxxxxxx
     NOTIFICATION_FROM_EMAIL=notifications@yourdomain.com (or onboarding@resend.dev for testing)
+    TWILIO_ACCOUNT_SID=ACxxxxxxxxx
+    TWILIO_AUTH_TOKEN=xxxxxxxxx
+    TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
     APP_NAME=Spotter (optional, defaults to "Spotter")
 """
 
@@ -15,25 +18,65 @@ from datetime import datetime, date
 # Config - loaded lazily to ensure .env is loaded first
 FROM_EMAIL = None
 APP_NAME = None
-_initialized = False
+TWILIO_PHONE = None
+_email_initialized = False
+_sms_initialized = False
+_twilio_client = None
 
 
-def _ensure_initialized():
+def _ensure_email_initialized():
     """Initialize Resend API key and config on first use."""
-    global FROM_EMAIL, APP_NAME, _initialized
+    global FROM_EMAIL, APP_NAME, _email_initialized
     
-    if _initialized:
+    if _email_initialized:
         return
     
     resend.api_key = os.environ.get('RESEND_API_KEY')
     FROM_EMAIL = os.environ.get('NOTIFICATION_FROM_EMAIL', 'onboarding@resend.dev')
     APP_NAME = os.environ.get('APP_NAME', 'Spotter')
-    _initialized = True
+    _email_initialized = True
     
     if resend.api_key:
         print(f"[NOTIFICATIONS] Resend initialized with FROM_EMAIL={FROM_EMAIL}")
     else:
         print("[NOTIFICATIONS] WARNING: RESEND_API_KEY not set")
+
+
+def _ensure_sms_initialized():
+    """Initialize Twilio client on first use."""
+    global TWILIO_PHONE, APP_NAME, _sms_initialized, _twilio_client
+    
+    if _sms_initialized:
+        return
+    
+    APP_NAME = os.environ.get('APP_NAME', 'Spotter')
+    
+    account_sid = os.environ.get('TWILIO_ACCOUNT_SID')
+    auth_token = os.environ.get('TWILIO_AUTH_TOKEN')
+    TWILIO_PHONE = os.environ.get('TWILIO_PHONE_NUMBER')
+    
+    if account_sid and auth_token and TWILIO_PHONE:
+        try:
+            from twilio.rest import Client
+            _twilio_client = Client(account_sid, auth_token)
+            print(f"[NOTIFICATIONS] Twilio initialized with phone={TWILIO_PHONE}")
+        except ImportError:
+            print("[NOTIFICATIONS] WARNING: twilio package not installed")
+            _twilio_client = None
+        except Exception as e:
+            print(f"[NOTIFICATIONS] WARNING: Twilio init failed: {e}")
+            _twilio_client = None
+    else:
+        print("[NOTIFICATIONS] WARNING: Twilio credentials not fully configured")
+        _twilio_client = None
+    
+    _sms_initialized = True
+
+
+def _ensure_initialized():
+    """Initialize both email and SMS (for backward compatibility)."""
+    _ensure_email_initialized()
+    _ensure_sms_initialized()
 
 
 # ============================================
@@ -42,7 +85,7 @@ def _ensure_initialized():
 
 def get_workout_reminder_email(user_name: str, workout_name: str, scheduled_time: str = None):
     """Generate workout reminder email content."""
-    _ensure_initialized()
+    _ensure_email_initialized()
     
     time_str = f" at {scheduled_time}" if scheduled_time else " today"
     
@@ -96,7 +139,7 @@ You're receiving this because you enabled workout reminders in {APP_NAME}.
 
 def get_inactivity_week_email(user_name: str, last_workout_date: str = None):
     """Generate 1-week inactivity nudge email."""
-    _ensure_initialized()
+    _ensure_email_initialized()
     
     subject = f"👋 We miss you, {user_name}!"
     
@@ -152,7 +195,7 @@ Don't want these? Update your notification settings in the app.
 
 def get_inactivity_month_email(user_name: str, last_workout_date: str = None):
     """Generate 1-month inactivity nudge email (more urgent tone)."""
-    _ensure_initialized()
+    _ensure_email_initialized()
     
     subject = f"🚨 {user_name}, it's been a month!"
     
@@ -218,7 +261,7 @@ def send_email(to_email: str, subject: str, html: str, text: str = None):
     Send an email via Resend.
     Returns (success: bool, error_message: str or None)
     """
-    _ensure_initialized()
+    _ensure_email_initialized()
     
     if not resend.api_key:
         print("[ERROR] RESEND_API_KEY not configured")
@@ -275,29 +318,49 @@ def send_inactivity_month_email(to_email: str, user_name: str, last_workout_date
 def send_sms(to_phone: str, message: str):
     """
     Send an SMS via Twilio.
-    TODO: Implement in Phase 5c
+    Returns (success: bool, error_message: str or None)
     """
-    _ensure_initialized()
-    print(f"[SMS TODO] Would send to {to_phone}: {message}")
-    return False, "Twilio not yet configured"
+    _ensure_sms_initialized()
+    
+    if not _twilio_client:
+        print(f"[SMS ERROR] Twilio not configured, cannot send to {to_phone}")
+        return False, "Twilio not configured"
+    
+    # Ensure phone has country code
+    if not to_phone.startswith('+'):
+        to_phone = '+1' + to_phone  # Default to US
+    
+    try:
+        msg = _twilio_client.messages.create(
+            body=message,
+            from_=TWILIO_PHONE,
+            to=to_phone
+        )
+        print(f"[SMS] Sent to {to_phone}: {message[:50]}... (SID: {msg.sid})")
+        return True, None
+        
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[SMS ERROR] Failed to send to {to_phone}: {error_msg}")
+        return False, error_msg
 
 
 def send_workout_reminder_sms(to_phone: str, user_name: str, workout_name: str):
     """Send a workout reminder SMS."""
-    _ensure_initialized()
+    _ensure_sms_initialized()
     message = f"Hey {user_name}! Reminder: {workout_name} is coming up. Time to get after it! 💪"
     return send_sms(to_phone, message)
 
 
 def send_inactivity_month_sms(to_phone: str, user_name: str):
     """Send a 1-month inactivity nudge SMS."""
-    _ensure_initialized()
+    _ensure_sms_initialized()
     message = f"Hey {user_name}, it's been a month since your last workout. Time for a comeback! 🔥"
     return send_sms(to_phone, message)
 
 
 def send_welcome_sms(to_phone: str, user_name: str):
     """Send welcome SMS when user confirms phone number."""
-    _ensure_initialized()
+    _ensure_sms_initialized()
     message = f"Welcome to {APP_NAME}, {user_name}! You'll now receive workout reminders at this number. Reply STOP to unsubscribe."
     return send_sms(to_phone, message)

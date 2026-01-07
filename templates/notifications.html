@@ -250,23 +250,40 @@
                     <h2 class="font-semibold text-gray-100">Test Notifications</h2>
                 </div>
                 
-                <div class="p-4 space-y-3">
-                    <p class="text-sm text-gray-400">Send a test email to yourself to verify everything is working.</p>
-                    
-                    <div class="flex flex-wrap gap-2">
-                        <button onclick="sendTestEmail('workout_reminder')"
-                                class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
-                            Test Workout Reminder
-                        </button>
-                        <button onclick="sendTestEmail('inactivity_week')"
-                                class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
-                            Test Week Nudge
-                        </button>
-                        <button onclick="sendTestEmail('inactivity_month')"
-                                class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
-                            Test Month Nudge
-                        </button>
+                <div class="p-4 space-y-4">
+                    <div>
+                        <p class="text-sm text-gray-400 mb-2">Send a test email to yourself:</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="sendTestEmail('workout_reminder')"
+                                    class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
+                                Test Workout Reminder
+                            </button>
+                            <button onclick="sendTestEmail('inactivity_week')"
+                                    class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
+                                Test Week Nudge
+                            </button>
+                            <button onclick="sendTestEmail('inactivity_month')"
+                                    class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
+                                Test Month Nudge
+                            </button>
+                        </div>
                     </div>
+                    
+                    {% if preferences and preferences.phone_number %}
+                    <div>
+                        <p class="text-sm text-gray-400 mb-2">Send a test SMS to your phone:</p>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="sendTestSms('workout_reminder')"
+                                    class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
+                                📱 Test SMS Reminder
+                            </button>
+                            <button onclick="sendTestSms('welcome')"
+                                    class="px-4 py-2 bg-dark-700 text-gray-300 rounded-lg text-sm font-medium hover:bg-dark-600 transition-colors">
+                                📱 Test Welcome SMS
+                            </button>
+                        </div>
+                    </div>
+                    {% endif %}
                     
                     <p id="test-result" class="text-sm hidden"></p>
                 </div>
@@ -494,7 +511,7 @@
     // Test email
     async function sendTestEmail(type) {
         const resultEl = document.getElementById('test-result');
-        resultEl.textContent = 'Sending...';
+        resultEl.textContent = 'Sending email...';
         resultEl.className = 'text-sm text-gray-400';
         resultEl.classList.remove('hidden');
         
@@ -509,6 +526,35 @@
             
             if (response.ok) {
                 resultEl.textContent = '✓ Test email sent! Check your inbox.';
+                resultEl.className = 'text-sm text-success';
+            } else {
+                resultEl.textContent = '✗ ' + (data.error || 'Failed to send');
+                resultEl.className = 'text-sm text-red-400';
+            }
+        } catch (err) {
+            resultEl.textContent = '✗ Connection error';
+            resultEl.className = 'text-sm text-red-400';
+        }
+    }
+    
+    // Test SMS
+    async function sendTestSms(type) {
+        const resultEl = document.getElementById('test-result');
+        resultEl.textContent = 'Sending SMS...';
+        resultEl.className = 'text-sm text-gray-400';
+        resultEl.classList.remove('hidden');
+        
+        try {
+            const response = await fetch('/api/cron/test-sms', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type })
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok) {
+                resultEl.textContent = '✓ Test SMS sent! Check your phone.';
                 resultEl.className = 'text-sm text-success';
             } else {
                 resultEl.textContent = '✗ ' + (data.error || 'Failed to send');
