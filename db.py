@@ -233,3 +233,20 @@ def update_user_profile(user_id: str, updates: dict):
         .execute()
     
     return response.data[0] if response.data else None
+
+
+def create_user_profile(user_id: str, email: str, display_name: str = None):
+    """Create a new user profile."""
+    supabase = get_supabase_client()
+    
+    profile_data = {
+        'id': user_id,
+        'email': email,
+        'display_name': display_name or email.split('@')[0],
+        'days_per_week': 3,
+        'split_type': 'ppl',
+        'cycle_length_weeks': 6
+    }
+    
+    response = supabase.table('profiles').insert(profile_data).execute()
+    return response.data[0] if response.data else None

@@ -83,7 +83,7 @@ def login():
                 flash(f'Login failed: {error_msg}', 'error')
             return render_template('auth/login.html')
     
-    return render_template('auth/login.html')
+    return render_template('auth/login.html', config=app.config)
 
 
 @app.route('/signup', methods=['GET', 'POST'])
@@ -156,6 +156,87 @@ def logout():
     flash('You have been logged out.', 'info')
     return redirect(url_for('login'))
 
+
+@app.route('/auth/google')
+def auth_google():
+    """Initiate Google OAuth flow via Supabase."""
+    supabase = db.get_supabase_client()
+    
+    # Determine redirect URL based on environment
+    if request.host.startswith('localhost') or request.host.startswith('127.0.0.1'):
+        redirect_url = 'http://localhost:5000/auth/google/callback'
+    else:
+        redirect_url = 'https://spotter-a1ux.onrender.com/auth/google/callback'
+    
+    response = supabase.auth.sign_in_with_oauth({
+        'provider': 'google',
+        'options': {
+            'redirect_to': redirect_url,
+            'skip_http_refresh': False
+        }
+    })
+    
+    # Store PKCE verifier in session for later exchange
+    if hasattr(supabase.auth, '_code_verifier'):
+        session['pkce_verifier'] = supabase.auth._code_verifier
+    
+    # Redirect to Google's OAuth page
+    return redirect(response.url)
+
+
+@app.route('/auth/google/callback')
+def auth_google_callback():
+    """Handle Google OAuth callback - use JS client to handle PKCE."""
+    return render_template('auth/google_callback.html', config=app.config)
+
+
+@app.route('/auth/google/complete')
+def auth_google_complete():
+    """Complete Google OAuth with tokens from client-side."""
+    access_token = request.args.get('access_token')
+    refresh_token = request.args.get('refresh_token')
+    
+    if not access_token:
+        flash('Google sign-in failed. Please try again.', 'error')
+        return redirect(url_for('login'))
+    
+    try:
+        supabase = db.get_supabase_client()
+        response = supabase.auth.get_user(access_token)
+        user = response.user
+        
+        if user:
+            session['user'] = {
+                'id': user.id,
+                'email': user.email,
+                'access_token': access_token,
+                'refresh_token': refresh_token,
+                'display_name': user.user_metadata.get('full_name') or user.user_metadata.get('name') or user.email.split('@')[0]
+            }
+            
+            try:
+                profile = db.get_user_profile(user.id)
+                if not profile:
+                    db.create_user_profile(
+                        user_id=user.id,
+                        email=user.email,
+                        display_name=session['user']['display_name']
+                    )
+                elif profile.get('display_name'):
+                    session['user']['display_name'] = profile['display_name']
+            except Exception as e:
+                print(f"Profile setup error (non-fatal): {e}")
+            
+            flash('Welcome! Signed in with Google.', 'success')
+            return redirect(url_for('index'))
+        else:
+            flash('Could not get user info.', 'error')
+            return redirect(url_for('login'))
+            
+    except Exception as e:
+        print(f"Google complete error: {e}")
+        flash('Google sign-in failed. Please try again.', 'error')
+        return redirect(url_for('login'))
 
 # ============================================
 # MAIN ROUTES
