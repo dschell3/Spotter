@@ -6,7 +6,9 @@ import db
 import db_cycles
 import db_progress
 import db_export
+import db_notifications
 import workout_generator
+import notification_service
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -1920,6 +1922,475 @@ def export_pdf():
     response.headers['Content-Disposition'] = f'attachment; filename={filename}'
     
     return response
+
+# ============================================
+# NOTIFICATION PREFERENCES API
+# ============================================
+
+@app.route('/api/notifications/preferences', methods=['GET'])
+@login_required
+def api_get_notification_preferences():
+    """Get current user's notification preferences."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        prefs = db_notifications.get_notification_preferences(user['id'])
+        return jsonify({'preferences': prefs})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/preferences', methods=['POST'])
+@login_required
+def api_update_notification_preferences():
+    """Update notification preferences."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    
+    # Whitelist allowed fields
+    allowed_fields = {
+        'phone_number',
+        'phone_confirmed',
+        'workout_reminder_enabled',
+        'workout_reminder_hours',
+        'workout_reminder_channel',
+        'inactivity_nudge_enabled',
+        'inactivity_week_via_email',
+        'inactivity_month_via_sms'
+    }
+    
+    updates = {k: v for k, v in data.items() if k in allowed_fields}
+    
+    if not updates:
+        return jsonify({'error': 'No valid fields to update'}), 400
+    
+    try:
+        result = db_notifications.upsert_notification_preferences(user['id'], updates)
+        return jsonify({'success': True, 'preferences': result})
+    except Exception as e:
+        print(f"Notification preferences update error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/notifications/phone', methods=['POST'])
+@login_required
+def api_update_phone():
+    """Update phone number with confirmation step."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    phone_number = data.get('phone_number', '').strip()
+    confirmed = data.get('confirmed', False)
+    
+    # Basic phone validation (US format, can be expanded)
+    import re
+    phone_clean = re.sub(r'[^\d+]', '', phone_number)
+    
+    if phone_number and len(phone_clean) < 10:
+        return jsonify({'error': 'Please enter a valid phone number'}), 400
+    
+    try:
+        # Check if this is a NEW phone number (for welcome SMS)
+        existing_prefs = db_notifications.get_notification_preferences(user['id'])
+        is_new_phone = (
+            confirmed and 
+            phone_clean and 
+            (not existing_prefs or existing_prefs.get('phone_number') != phone_clean)
+        )
+        
+        result = db_notifications.update_phone_number(
+            user['id'], 
+            phone_clean if phone_number else None,
+            confirmed=confirmed
+        )
+        
+        # Send welcome SMS if this is a new confirmed phone number
+        if is_new_phone:
+            send_welcome_sms(user, phone_clean)
+        
+        return jsonify({'success': True, 'preferences': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def send_welcome_sms(user, phone_number):
+    """
+    Send a welcome SMS when user first confirms their phone number.
+    This acts as soft verification - if they got it wrong, they'll tell us.
+    
+    TODO: Implement in Phase 5c with Twilio
+    """
+    # Placeholder until Twilio is set up
+    print(f"[TODO] Send welcome SMS to {phone_number} for user {user.get('email')}")
+    print(f"[TODO] Message: 'Welcome to Spotter! You'll now receive workout reminders at this number. Reply STOP to unsubscribe.'")
+    
+    # Log the attempt (even though it's not actually sent yet)
+    try:
+        db_notifications.log_notification(
+            user_id=user['id'],
+            notification_type='welcome_sms',
+            channel='sms',
+            status='pending',  # Will be 'sent' once Twilio is integrated
+            error_message='Twilio not yet configured'
+        )
+    except Exception as e:
+        print(f"Failed to log welcome SMS: {e}")
+
+
+@app.route('/api/notifications/history', methods=['GET'])
+@login_required
+def api_notification_history():
+    """Get notification history for current user."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    try:
+        history = db_notifications.get_notification_history(user['id'])
+        return jsonify({'history': history})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# NOTIFICATION PREFERENCES PAGE ROUTE
+# ============================================
+
+@app.route('/notifications')
+@login_required
+def notifications_settings():
+    """Notification settings page."""
+    user = get_current_user()
+    profile = db.get_user_profile(user['id'])
+    prefs = db_notifications.get_notification_preferences(user['id'])
+    
+    return render_template('notifications.html',
+                         user=user,
+                         profile=profile,
+                         preferences=prefs)
+
+
+"""
+Cron Job Handlers (Phase 5b)
+These endpoints are called by cron-job.org to process notifications.
+
+Add these routes to your app.py file.
+
+Required imports to add at top of app.py:
+    import notification_service
+    from datetime import datetime, date, timedelta
+"""
+
+import os
+from functools import wraps
+
+# Simple secret key for cron job authentication
+# Set this in your environment variables
+CRON_SECRET = os.environ.get('CRON_SECRET', 'change-me-in-production')
+
+
+def cron_auth_required(f):
+    """
+    Decorator to protect cron endpoints.
+    Requires X-Cron-Secret header or ?secret= query param.
+    """
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        secret = request.headers.get('X-Cron-Secret') or request.args.get('secret')
+        if secret != CRON_SECRET:
+            return jsonify({'error': 'Unauthorized'}), 401
+        return f(*args, **kwargs)
+    return decorated
+
+
+# ============================================
+# CRON ENDPOINTS
+# ============================================
+
+@app.route('/api/cron/notifications', methods=['GET', 'POST'])
+@cron_auth_required
+def cron_process_notifications():
+    """
+    Main cron endpoint - processes all notification types.
+    Called hourly by cron-job.org.
+    
+    URL: https://your-app.onrender.com/api/cron/notifications?secret=YOUR_SECRET
+    """
+    results = {
+        'timestamp': datetime.utcnow().isoformat(),
+        'workout_reminders': {'processed': 0, 'sent': 0, 'errors': 0},
+        'inactivity_week': {'processed': 0, 'sent': 0, 'errors': 0},
+        'inactivity_month': {'processed': 0, 'sent': 0, 'errors': 0}
+    }
+    
+    # Process workout reminders
+    try:
+        reminder_results = process_workout_reminders()
+        results['workout_reminders'] = reminder_results
+    except Exception as e:
+        print(f"[CRON ERROR] Workout reminders failed: {e}")
+        results['workout_reminders']['error'] = str(e)
+    
+    # Process inactivity nudges (only check once per day, early morning)
+    current_hour = datetime.utcnow().hour
+    if current_hour == 14:  # 2 PM UTC = ~6-9 AM across US timezones
+        try:
+            week_results = process_inactivity_nudges(days=7, nudge_type='inactivity_week')
+            results['inactivity_week'] = week_results
+        except Exception as e:
+            print(f"[CRON ERROR] Week inactivity failed: {e}")
+            results['inactivity_week']['error'] = str(e)
+        
+        try:
+            month_results = process_inactivity_nudges(days=30, nudge_type='inactivity_month')
+            results['inactivity_month'] = month_results
+        except Exception as e:
+            print(f"[CRON ERROR] Month inactivity failed: {e}")
+            results['inactivity_month']['error'] = str(e)
+    
+    return jsonify(results)
+
+
+@app.route('/api/cron/workout-reminders', methods=['GET', 'POST'])
+@cron_auth_required
+def cron_workout_reminders():
+    """Process only workout reminders."""
+    try:
+        results = process_workout_reminders()
+        return jsonify(results)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cron/inactivity', methods=['GET', 'POST'])
+@cron_auth_required
+def cron_inactivity():
+    """Process only inactivity nudges."""
+    results = {}
+    
+    try:
+        results['week'] = process_inactivity_nudges(days=7, nudge_type='inactivity_week')
+    except Exception as e:
+        results['week'] = {'error': str(e)}
+    
+    try:
+        results['month'] = process_inactivity_nudges(days=30, nudge_type='inactivity_month')
+    except Exception as e:
+        results['month'] = {'error': str(e)}
+    
+    return jsonify(results)
+
+
+# ============================================
+# NOTIFICATION PROCESSING LOGIC
+# ============================================
+
+def process_workout_reminders():
+    """
+    Find users with workouts scheduled today and send reminders
+    based on their preferred reminder time (X hours before).
+    """
+    results = {'processed': 0, 'sent': 0, 'errors': 0, 'skipped': 0}
+    
+    # Get users who need reminders
+    users_to_notify = db_notifications.get_users_for_workout_reminders(hours_ahead=24)
+    
+    now = datetime.utcnow()
+    today = now.date()
+    
+    for user in users_to_notify:
+        results['processed'] += 1
+        
+        user_id = user['user_id']
+        workout_id = user['workout_id']
+        reminder_hours = user.get('reminder_hours', 2)
+        channel = user.get('channel', 'email')
+        
+        # Check if already sent
+        if db_notifications.was_notification_sent(user_id, 'workout_reminder', reference_id=workout_id):
+            results['skipped'] += 1
+            continue
+        
+        # For now, send reminders for today's workouts
+        # A more sophisticated version would calculate exact timing
+        workout_date_str = user.get('scheduled_date')
+        if workout_date_str:
+            workout_date = datetime.strptime(workout_date_str, '%Y-%m-%d').date()
+            if workout_date != today:
+                results['skipped'] += 1
+                continue
+        
+        # Send notification
+        user_name = user.get('display_name') or user.get('email', '').split('@')[0]
+        workout_name = user.get('workout_name', 'Workout')
+        
+        success = False
+        error_msg = None
+        
+        if channel == 'email' and user.get('email'):
+            success, error_msg = notification_service.send_workout_reminder_email(
+                to_email=user['email'],
+                user_name=user_name,
+                workout_name=workout_name
+            )
+        elif channel == 'sms' and user.get('phone_number'):
+            success, error_msg = notification_service.send_workout_reminder_sms(
+                to_phone=user['phone_number'],
+                user_name=user_name,
+                workout_name=workout_name
+            )
+        else:
+            error_msg = f"No valid {channel} address"
+        
+        # Log the notification
+        db_notifications.log_notification(
+            user_id=user_id,
+            notification_type='workout_reminder',
+            channel=channel,
+            reference_id=workout_id,
+            status='sent' if success else 'failed',
+            error_message=error_msg
+        )
+        
+        if success:
+            results['sent'] += 1
+        else:
+            results['errors'] += 1
+    
+    return results
+
+
+def process_inactivity_nudges(days: int, nudge_type: str):
+    """
+    Find users who haven't worked out in X days and send nudges.
+    """
+    results = {'processed': 0, 'sent': 0, 'errors': 0, 'skipped': 0}
+    
+    users_to_notify = db_notifications.get_users_for_inactivity_nudge(days_inactive=days)
+    today = date.today()
+    
+    for user in users_to_notify:
+        results['processed'] += 1
+        
+        user_id = user['user_id']
+        channel = user.get('channel', 'email')
+        
+        # Check if already sent today (prevent multiple nudges)
+        if db_notifications.was_notification_sent(user_id, nudge_type, reference_date=today):
+            results['skipped'] += 1
+            continue
+        
+        # Also check if we've sent this nudge in the past week (don't spam)
+        # For month nudge, only send once per month
+        recent_cutoff = today - timedelta(days=7 if nudge_type == 'inactivity_week' else 30)
+        if db_notifications.was_notification_sent(user_id, nudge_type, reference_date=recent_cutoff):
+            results['skipped'] += 1
+            continue
+        
+        user_name = user.get('display_name') or user.get('email', '').split('@')[0]
+        last_workout = user.get('last_workout_date')
+        
+        success = False
+        error_msg = None
+        
+        if nudge_type == 'inactivity_week':
+            # Week nudge is always email
+            if user.get('email'):
+                success, error_msg = notification_service.send_inactivity_week_email(
+                    to_email=user['email'],
+                    user_name=user_name,
+                    last_workout_date=last_workout
+                )
+            else:
+                error_msg = "No email address"
+                
+        elif nudge_type == 'inactivity_month':
+            # Month nudge can be SMS or email
+            if channel == 'sms' and user.get('phone_number'):
+                success, error_msg = notification_service.send_inactivity_month_sms(
+                    to_phone=user['phone_number'],
+                    user_name=user_name
+                )
+            elif user.get('email'):
+                success, error_msg = notification_service.send_inactivity_month_email(
+                    to_email=user['email'],
+                    user_name=user_name,
+                    last_workout_date=last_workout
+                )
+            else:
+                error_msg = "No valid contact method"
+        
+        # Log the notification
+        db_notifications.log_notification(
+            user_id=user_id,
+            notification_type=nudge_type,
+            channel=channel,
+            reference_date=today,
+            status='sent' if success else 'failed',
+            error_message=error_msg
+        )
+        
+        if success:
+            results['sent'] += 1
+        else:
+            results['errors'] += 1
+    
+    return results
+
+
+# ============================================
+# TEST ENDPOINT (for development)
+# ============================================
+
+@app.route('/api/cron/test-email', methods=['POST'])
+@login_required
+def test_notification_email():
+    """
+    Send a test email to the current user.
+    For development/testing only.
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    profile = db.get_user_profile(user['id'])
+    user_name = profile.get('display_name') if profile else user['email'].split('@')[0]
+    
+    data = request.json or {}
+    email_type = data.get('type', 'workout_reminder')
+    
+    if email_type == 'workout_reminder':
+        success, error = notification_service.send_workout_reminder_email(
+            to_email=user['email'],
+            user_name=user_name,
+            workout_name='Push Day (Test)'
+        )
+    elif email_type == 'inactivity_week':
+        success, error = notification_service.send_inactivity_week_email(
+            to_email=user['email'],
+            user_name=user_name,
+            last_workout_date='January 1, 2025'
+        )
+    elif email_type == 'inactivity_month':
+        success, error = notification_service.send_inactivity_month_email(
+            to_email=user['email'],
+            user_name=user_name,
+            last_workout_date='December 1, 2024'
+        )
+    else:
+        return jsonify({'error': 'Invalid email type'}), 400
+    
+    if success:
+        return jsonify({'success': True, 'message': f'Test email sent to {user["email"]}'})
+    else:
+        return jsonify({'success': False, 'error': error}), 500
 
 # ============================================
 # PWA ROUTES
