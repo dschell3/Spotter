@@ -166,6 +166,30 @@
                 </button>
             </div>
             
+            <!-- Share Section -->
+            <div class="bg-dark-800 border border-dark-600 rounded-xl p-4">
+                <h3 class="font-semibold text-gray-100 mb-3">Share This Cycle</h3>
+                
+                <div id="share-section">
+                    <button onclick="shareCycle()" 
+                            class="px-4 py-2 bg-accent text-dark-900 rounded-lg font-medium">
+                        🔗 Generate Share Link
+                    </button>
+                </div>
+                
+                <div id="share-result" class="hidden mt-3">
+                    <input type="text" id="share-url" readonly
+                        class="w-full bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-gray-300 text-sm">
+                    <div class="flex gap-2 mt-2">
+                        <button onclick="copyShareUrl()" class="text-sm text-accent">Copy Link</button>
+                        <label class="flex items-center gap-2 text-sm text-gray-400">
+                            <input type="checkbox" id="share-public" onchange="updateShareSettings()">
+                            List in public library
+                        </label>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </main>
 </div>
@@ -235,6 +259,35 @@
             console.error('Delete error:', err);
             alert('Failed to delete cycle');
         }
+    }
+
+    async function shareCycle() {
+        const response = await fetch('/api/cycle/{{ cycle.id }}/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_public: false })
+        });
+        
+        const data = await response.json();
+        if (data.share_url) {
+            document.getElementById('share-url').value = data.share_url;
+            document.getElementById('share-result').classList.remove('hidden');
+        }
+    }
+
+    function copyShareUrl() {
+        const input = document.getElementById('share-url');
+        navigator.clipboard.writeText(input.value);
+        alert('Link copied!');
+    }
+
+    async function updateShareSettings() {
+        const isPublic = document.getElementById('share-public').checked;
+        await fetch('/api/cycle/{{ cycle.id }}/share', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ is_public: isPublic })
+        });
     }
 </script>
 {% endblock %}

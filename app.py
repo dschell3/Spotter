@@ -7,6 +7,7 @@ import db_cycles
 import db_progress
 import db_export
 import db_notifications
+import db_social
 import workout_generator
 import notification_service
 
@@ -2076,10 +2077,14 @@ def notifications_settings():
     profile = db.get_user_profile(user['id'])
     prefs = db_notifications.get_notification_preferences(user['id'])
     
+    # Only show test section in development
+    is_debug = os.environ.get('FLASK_ENV') == 'development' or app.debug
+    
     return render_template('notifications.html',
                          user=user,
                          profile=profile,
-                         preferences=prefs)
+                         preferences=prefs,
+                         is_debug=is_debug)
 
 
 """
@@ -2445,6 +2450,389 @@ def test_notification_sms():
         return jsonify({'success': True, 'message': f'Test SMS sent to {phone_number}'})
     else:
         return jsonify({'success': False, 'error': error}), 500
+
+
+"""
+Social Features API Endpoints (Phase 6)
+Add these routes to your app.py file
+
+Required imports to add at top of app.py:
+    import db_social
+"""
+
+
+# ============================================
+# SHARE CYCLE ENDPOINTS
+# ============================================
+
+@app.route('/api/cycle/<cycle_id>/share', methods=['POST'])
+@login_required
+def api_share_cycle(cycle_id):
+    """Share a cycle, generating a unique link."""
+    user = get_current_user()
+    data = request.json or {}
+    
+    # Verify user owns the cycle
+    cycle = db_cycles.get_cycle_by_id(cycle_id)
+    if not cycle or cycle.get('user_id') != user['id']:
+        return jsonify({'error': 'Cycle not found'}), 404
+    
+    try:
+        result = db_social.share_cycle(
+            user_id=user['id'],
+            cycle_id=cycle_id,
+            is_public=data.get('is_public', False),
+            is_template=data.get('is_template', False),
+            title=data.get('title'),
+            description=data.get('description'),
+            tags=data.get('tags')
+        )
+        
+        if result:
+            share_url = f"{request.host_url}shared/cycle/{result['share_code']}"
+            return jsonify({
+                'success': True,
+                'share_code': result['share_code'],
+                'share_url': share_url,
+                'is_public': result.get('is_public'),
+                'is_template': result.get('is_template')
+            })
+        else:
+            return jsonify({'error': 'Failed to share cycle'}), 500
+            
+    except Exception as e:
+        print(f"Error sharing cycle: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cycle/<cycle_id>/unshare', methods=['POST'])
+@login_required
+def api_unshare_cycle(cycle_id):
+    """Remove a cycle from sharing."""
+    user = get_current_user()
+    
+    try:
+        db_social.unshare_cycle(user['id'], cycle_id)
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/cycle/<cycle_id>/share-settings', methods=['GET'])
+@login_required
+def api_get_share_settings(cycle_id):
+    """Get current share settings for a cycle."""
+    user = get_current_user()
+    
+    shared_cycles = db_social.get_user_shared_cycles(user['id'])
+    
+    for shared in shared_cycles:
+        if shared.get('cycle_id') == cycle_id:
+            return jsonify({
+                'is_shared': True,
+                'share_code': shared['share_code'],
+                'share_url': f"{request.host_url}shared/cycle/{shared['share_code']}",
+                'is_public': shared.get('is_public', False),
+                'is_template': shared.get('is_template', False),
+                'title': shared.get('title'),
+                'description': shared.get('description'),
+                'tags': shared.get('tags', []),
+                'copy_count': shared.get('copy_count', 0),
+                'view_count': shared.get('view_count', 0)
+            })
+    
+    return jsonify({'is_shared': False})
+
+
+@app.route('/api/my-shared-cycles', methods=['GET'])
+@login_required
+def api_my_shared_cycles():
+    """Get all cycles shared by current user."""
+    user = get_current_user()
+    
+    try:
+        cycles = db_social.get_user_shared_cycles(user['id'])
+        
+        # Add share URLs
+        for cycle in cycles:
+            cycle['share_url'] = f"{request.host_url}shared/cycle/{cycle['share_code']}"
+        
+        return jsonify({'cycles': cycles})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# PUBLIC LIBRARY ENDPOINTS
+# ============================================
+
+@app.route('/api/library/cycles', methods=['GET'])
+def api_library_cycles():
+    """Get public cycles for the library (no auth required)."""
+    limit = request.args.get('limit', 20, type=int)
+    offset = request.args.get('offset', 0, type=int)
+    split_type = request.args.get('split_type')
+    sort_by = request.args.get('sort', 'recent')
+    
+    try:
+        cycles = db_social.get_public_cycles(
+            limit=min(limit, 50),  # Cap at 50
+            offset=offset,
+            split_type=split_type,
+            sort_by=sort_by
+        )
+        
+        # Clean up response
+        for cycle in cycles:
+            cycle['share_url'] = f"{request.host_url}shared/cycle/{cycle['share_code']}"
+            # Get author name
+            profile = cycle.get('profiles')
+            if profile:
+                cycle['author_name'] = profile.get('public_display_name') or profile.get('display_name') or 'Anonymous'
+                cycle['is_trainer'] = profile.get('is_trainer', False)
+            else:
+                cycle['author_name'] = 'Anonymous'
+                cycle['is_trainer'] = False
+        
+        return jsonify({'cycles': cycles})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/library/templates', methods=['GET'])
+def api_library_templates():
+    """Get trainer templates."""
+    trainer_id = request.args.get('trainer_id')
+    
+    try:
+        templates = db_social.get_template_cycles(trainer_id)
+        
+        for template in templates:
+            template['share_url'] = f"{request.host_url}shared/cycle/{template['share_code']}"
+            profile = template.get('profiles')
+            if profile:
+                template['trainer_name'] = profile.get('public_display_name') or profile.get('display_name') or 'Trainer'
+            else:
+                template['trainer_name'] = 'Trainer'
+        
+        return jsonify({'templates': templates})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# COPY CYCLE ENDPOINT
+# ============================================
+
+@app.route('/api/shared/cycle/<share_code>/copy', methods=['POST'])
+@login_required
+def api_copy_shared_cycle(share_code):
+    """Copy a shared cycle to user's account."""
+    user = get_current_user()
+    data = request.json or {}
+    
+    try:
+        new_cycle_id, error = db_social.copy_shared_cycle(
+            share_code=share_code,
+            user_id=user['id'],
+            new_name=data.get('name')
+        )
+        
+        if error:
+            return jsonify({'error': error}), 400
+        
+        return jsonify({
+            'success': True,
+            'cycle_id': new_cycle_id,
+            'message': 'Cycle copied to your account!'
+        })
+    except Exception as e:
+        print(f"Error copying cycle: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ============================================
+# SHARED CYCLE VIEW (Public)
+# ============================================
+
+@app.route('/shared/cycle/<share_code>')
+def view_shared_cycle(share_code):
+    """Public page to view a shared cycle."""
+    shared = db_social.get_shared_cycle_by_code(share_code)
+    
+    if not shared:
+        return render_template('errors/404.html', message="Shared cycle not found"), 404
+    
+    cycle = shared.get('training_cycles')
+    
+    # Get workout templates for preview
+    templates = []
+    if cycle:
+        templates = db_cycles.get_cycle_workout_templates(cycle['id'])
+    
+    # Check if current user is logged in
+    current_user = None
+    try:
+        current_user = get_current_user()
+    except:
+        pass
+    
+    # Get author info
+    author_profile = None
+    try:
+        author_profile = db.get_user_profile(shared['user_id'])
+    except:
+        pass
+    
+    return render_template('shared_cycle.html',
+                         shared=shared,
+                         cycle=cycle,
+                         templates=templates,
+                         author=author_profile,
+                         current_user=current_user,
+                         share_code=share_code)
+
+
+# ============================================
+# SHARE ACHIEVEMENT (PR, Workout, etc.)
+# ============================================
+
+@app.route('/api/share/achievement', methods=['POST'])
+@login_required
+def api_share_achievement():
+    """Create a shareable achievement."""
+    user = get_current_user()
+    data = request.json
+    
+    if not data.get('type') or not data.get('data'):
+        return jsonify({'error': 'Missing type or data'}), 400
+    
+    profile = db.get_user_profile(user['id'])
+    display_name = data.get('display_name') or (profile.get('display_name') if profile else None) or 'Someone'
+    
+    try:
+        result = db_social.create_shared_achievement(
+            user_id=user['id'],
+            achievement_type=data['type'],
+            achievement_data=data['data'],
+            display_name=display_name,
+            expires_days=data.get('expires_days', 30)  # Default 30 day expiry
+        )
+        
+        if result:
+            share_url = f"{request.host_url}shared/{data['type']}/{result['share_code']}"
+            return jsonify({
+                'success': True,
+                'share_code': result['share_code'],
+                'share_url': share_url
+            })
+        else:
+            return jsonify({'error': 'Failed to create share'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/shared/pr/<share_code>')
+def view_shared_pr(share_code):
+    """Public page to view a shared PR."""
+    achievement = db_social.get_shared_achievement(share_code)
+    
+    if not achievement or achievement.get('achievement_type') != 'pr':
+        return render_template('errors/404.html', message="Shared PR not found or expired"), 404
+    
+    return render_template('shared_pr.html',
+                         achievement=achievement,
+                         pr_data=achievement.get('achievement_data', {}))
+
+
+@app.route('/shared/workout/<share_code>')
+def view_shared_workout(share_code):
+    """Public page to view a shared workout."""
+    achievement = db_social.get_shared_achievement(share_code)
+    
+    if not achievement or achievement.get('achievement_type') != 'workout':
+        return render_template('errors/404.html', message="Shared workout not found or expired"), 404
+    
+    return render_template('shared_workout.html',
+                         achievement=achievement,
+                         workout_data=achievement.get('achievement_data', {}))
+
+
+# ============================================
+# PUBLIC LIBRARY PAGE
+# ============================================
+
+@app.route('/library')
+def cycle_library():
+    """Public cycle library page."""
+    current_user = None
+    try:
+        current_user = get_current_user()
+    except:
+        pass
+    
+    return render_template('library.html', current_user=current_user)
+
+
+# ============================================
+# PUBLIC PROFILE
+# ============================================
+
+@app.route('/api/profile/public', methods=['POST'])
+@login_required
+def api_update_public_profile():
+    """Update public profile settings."""
+    user = get_current_user()
+    data = request.json
+    
+    # Validate slug if provided
+    if data.get('profile_slug'):
+        slug = data['profile_slug'].lower().strip()
+        if not slug.isalnum() or len(slug) < 3 or len(slug) > 30:
+            return jsonify({'error': 'Slug must be 3-30 alphanumeric characters'}), 400
+        
+        if not db_social.check_profile_slug_available(slug, user['id']):
+            return jsonify({'error': 'This profile URL is already taken'}), 400
+        
+        data['profile_slug'] = slug
+    
+    try:
+        result = db_social.update_public_profile(user['id'], data)
+        return jsonify({'success': True, 'profile': result})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/u/<profile_slug>')
+def view_public_profile(profile_slug):
+    """View a user's public profile."""
+    profile = db_social.get_public_profile(profile_slug)
+    
+    if not profile:
+        return render_template('errors/404.html', message="Profile not found"), 404
+    
+    # Get their public shared cycles
+    shared_cycles = []
+    try:
+        all_shared = db_social.get_user_shared_cycles(profile['user_id'])
+        shared_cycles = [c for c in all_shared if c.get('is_public')]
+    except:
+        pass
+    
+    # Get their PRs if enabled
+    prs = []
+    if profile.get('show_prs_publicly'):
+        try:
+            prs = db_progress.get_personal_records(profile['user_id'])[:10]  # Top 10
+        except:
+            pass
+    
+    return render_template('public_profile.html',
+                         profile=profile,
+                         shared_cycles=shared_cycles,
+                         prs=prs)
+
 
 # ============================================
 # PWA ROUTES

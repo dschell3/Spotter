@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+
+{% block title %}{{ shared.title or cycle.name or 'Shared Cycle' }} - Spotter{% endblock %}
+
+{% block head %}
+<!-- Open Graph meta tags for social sharing -->
+<meta property="og:title" content="{{ shared.title or cycle.name or 'Training Cycle' }}">
+<meta property="og:description" content="{{ shared.description or (cycle.split_type|upper + ' - ' + (cycle.length_weeks|string) + ' weeks') }}">
+<meta property="og:type" content="website">
+<meta property="og:url" content="{{ request.url }}">
+<meta name="twitter:card" content="summary">
+{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-dark-900">
+    <!-- Header -->
+    <header class="bg-dark-800 border-b border-dark-600 px-4 py-4">
+        <div class="max-w-2xl mx-auto flex items-center justify-between">
+            <a href="{{ url_for('index') }}" class="text-xl font-bold text-accent">Spotter</a>
+            {% if current_user %}
+            <a href="{{ url_for('plan') }}" class="text-sm text-gray-400 hover:text-gray-200">← Back to Plan</a>
+            {% else %}
+            <a href="{{ url_for('login') }}" class="text-sm text-accent hover:text-accent/80">Log in</a>
+            {% endif %}
+        </div>
+    </header>
+    
+    <div class="max-w-2xl mx-auto px-4 py-6 space-y-6">
+        <!-- Cycle Header -->
+        <div class="bg-dark-800 border border-dark-600 rounded-xl p-6">
+            {% if shared.is_template %}
+            <span class="inline-block px-2 py-1 text-xs font-medium bg-accent/20 text-accent rounded mb-3">
+                📋 Trainer Template
+            </span>
+            {% endif %}
+            
+            <h1 class="text-2xl font-bold text-gray-100 mb-2">
+                {{ shared.title or cycle.name or 'Training Cycle' }}
+            </h1>
+            
+            {% if shared.description %}
+            <p class="text-gray-400 mb-4">{{ shared.description }}</p>
+            {% endif %}
+            
+            <!-- Cycle Details -->
+            <div class="flex flex-wrap gap-4 text-sm">
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-500">Split:</span>
+                    <span class="text-gray-200 font-medium">{{ cycle.split_type|upper if cycle else 'N/A' }}</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-500">Duration:</span>
+                    <span class="text-gray-200 font-medium">{{ cycle.length_weeks if cycle else '?' }} weeks</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-gray-500">Days/week:</span>
+                    <span class="text-gray-200 font-medium">{{ cycle.days_per_week if cycle else '?' }}</span>
+                </div>
+            </div>
+            
+            <!-- Tags -->
+            {% if shared.tags and shared.tags|length > 0 %}
+            <div class="flex flex-wrap gap-2 mt-4">
+                {% for tag in shared.tags %}
+                <span class="px-2 py-1 text-xs bg-dark-700 text-gray-400 rounded">{{ tag }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            
+            <!-- Author -->
+            {% if author %}
+            <div class="flex items-center gap-2 mt-4 pt-4 border-t border-dark-600">
+                <div class="w-8 h-8 rounded-full bg-dark-600 flex items-center justify-center text-gray-400">
+                    {{ (author.display_name or 'A')[0]|upper }}
+                </div>
+                <div>
+                    <p class="text-sm text-gray-300">{{ author.public_display_name or author.display_name or 'Anonymous' }}</p>
+                    {% if author.is_trainer %}
+                    <p class="text-xs text-accent">Certified Trainer</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <!-- Stats -->
+            <div class="flex items-center gap-4 mt-4 text-xs text-gray-500">
+                <span>👁️ {{ shared.view_count or 0 }} views</span>
+                <span>📋 {{ shared.copy_count or 0 }} copies</span>
+            </div>
+        </div>
+        
+        <!-- Workout Preview -->
+        <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden">
+            <div class="px-4 py-3 border-b border-dark-600">
+                <h2 class="font-semibold text-gray-100">Workout Structure</h2>
+            </div>
+            
+            <div class="p-4">
+                {% if templates %}
+                <div class="space-y-3">
+                    {% for template in templates[:7] %}
+                    <div class="bg-dark-700 rounded-lg p-3">
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="font-medium text-gray-200">{{ template.name }}</h3>
+                            <span class="text-xs text-gray-500">{{ template.workout_type or 'Standard' }}</span>
+                        </div>
+                        
+                        {% if template.exercises %}
+                        <div class="text-sm text-gray-400">
+                            {% set exercise_names = [] %}
+                            {% for ex in template.exercises[:5] %}
+                                {% if ex.exercise_name %}
+                                    {% set _ = exercise_names.append(ex.exercise_name) %}
+                                {% endif %}
+                            {% endfor %}
+                            {{ exercise_names|join(', ') }}
+                            {% if template.exercises|length > 5 %}
+                            <span class="text-gray-500">+{{ template.exercises|length - 5 }} more</span>
+                            {% endif %}
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                    
+                    {% if templates|length > 7 %}
+                    <p class="text-sm text-gray-500 text-center py-2">
+                        +{{ templates|length - 7 }} more workouts
+                    </p>
+                    {% endif %}
+                </div>
+                {% else %}
+                <p class="text-gray-500 text-center py-4">No workout details available</p>
+                {% endif %}
+            </div>
+        </div>
+        
+        <!-- Copy CTA -->
+        <div class="bg-dark-800 border border-dark-600 rounded-xl p-6 text-center">
+            {% if current_user %}
+            <h3 class="text-lg font-semibold text-gray-100 mb-2">Want to try this cycle?</h3>
+            <p class="text-gray-400 text-sm mb-4">Copy it to your account and customize it for your goals.</p>
+            
+            <button onclick="copyCycle()" 
+                    id="copy-btn"
+                    class="px-6 py-3 bg-accent text-dark-900 rounded-lg font-semibold hover:bg-accent/90 transition-colors">
+                📋 Copy to My Account
+            </button>
+            
+            <p id="copy-result" class="text-sm mt-3 hidden"></p>
+            {% else %}
+            <h3 class="text-lg font-semibold text-gray-100 mb-2">Want to try this cycle?</h3>
+            <p class="text-gray-400 text-sm mb-4">Sign up for Spotter to copy this cycle to your account.</p>
+            
+            <a href="{{ url_for('signup') }}" 
+               class="inline-block px-6 py-3 bg-accent text-dark-900 rounded-lg font-semibold hover:bg-accent/90 transition-colors">
+                Get Started Free
+            </a>
+            {% endif %}
+        </div>
+        
+        <!-- Share -->
+        <div class="flex justify-center gap-4">
+            <button onclick="copyShareLink()" class="text-sm text-gray-400 hover:text-gray-200 flex items-center gap-1">
+                🔗 Copy Link
+            </button>
+            <a href="https://twitter.com/intent/tweet?url={{ request.url|urlencode }}&text={{ (shared.title or cycle.name or 'Check out this training cycle')|urlencode }}" 
+               target="_blank"
+               class="text-sm text-gray-400 hover:text-gray-200 flex items-center gap-1">
+                𝕏 Share
+            </a>
+        </div>
+    </div>
+</div>
+
+<script>
+async function copyCycle() {
+    const btn = document.getElementById('copy-btn');
+    const result = document.getElementById('copy-result');
+    
+    btn.disabled = true;
+    btn.textContent = 'Copying...';
+    
+    try {
+        const response = await fetch('/api/shared/cycle/{{ share_code }}/copy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+            result.textContent = '✓ Cycle copied! Redirecting...';
+            result.className = 'text-sm mt-3 text-success';
+            result.classList.remove('hidden');
+            
+            setTimeout(() => {
+                window.location.href = '/cycle/' + data.cycle_id;
+            }, 1500);
+        } else {
+            throw new Error(data.error || 'Failed to copy');
+        }
+    } catch (err) {
+        result.textContent = '✗ ' + err.message;
+        result.className = 'text-sm mt-3 text-red-400';
+        result.classList.remove('hidden');
+        btn.disabled = false;
+        btn.textContent = '📋 Copy to My Account';
+    }
+}
+
+function copyShareLink() {
+    navigator.clipboard.writeText(window.location.href).then(() => {
+        alert('Link copied to clipboard!');
+    });
+}
+</script>
+{% endblock %}

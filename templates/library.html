@@ -1,0 +1,216 @@
+{% extends "base.html" %}
+
+{% block title %}Cycle Library - Spotter{% endblock %}
+
+{% block content %}
+<div class="min-h-screen bg-dark-900">
+    <!-- Header -->
+    <header class="bg-dark-800 border-b border-dark-600 px-4 py-4">
+        <div class="max-w-4xl mx-auto flex items-center justify-between">
+            <a href="{{ url_for('index') }}" class="text-xl font-bold text-accent">Spotter</a>
+            {% if current_user %}
+            <a href="{{ url_for('plan') }}" class="text-sm text-gray-400 hover:text-gray-200">← Back to Plan</a>
+            {% else %}
+            <a href="{{ url_for('login') }}" class="text-sm text-accent hover:text-accent/80">Log in</a>
+            {% endif %}
+        </div>
+    </header>
+    
+    <div class="max-w-4xl mx-auto px-4 py-6">
+        <!-- Page Header -->
+        <div class="mb-6">
+            <h1 class="text-2xl font-bold text-gray-100 mb-2">Cycle Library</h1>
+            <p class="text-gray-400">Browse training cycles shared by the community and trainers.</p>
+        </div>
+        
+        <!-- Filters -->
+        <div class="bg-dark-800 border border-dark-600 rounded-xl p-4 mb-6">
+            <div class="flex flex-wrap gap-4">
+                <!-- Split Type Filter -->
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Split Type</label>
+                    <select id="filter-split" onchange="loadCycles()" 
+                            class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-sm">
+                        <option value="">All Splits</option>
+                        <option value="ppl">Push/Pull/Legs</option>
+                        <option value="upper_lower">Upper/Lower</option>
+                        <option value="full_body">Full Body</option>
+                        <option value="bro_split">Bro Split</option>
+                    </select>
+                </div>
+                
+                <!-- Sort -->
+                <div>
+                    <label class="block text-xs text-gray-500 mb-1">Sort By</label>
+                    <select id="filter-sort" onchange="loadCycles()"
+                            class="bg-dark-700 border border-dark-600 rounded-lg px-3 py-2 text-gray-200 text-sm">
+                        <option value="recent">Most Recent</option>
+                        <option value="popular">Most Viewed</option>
+                        <option value="most_copied">Most Copied</option>
+                    </select>
+                </div>
+                
+                <!-- Templates Only Toggle -->
+                <div class="flex items-end">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" id="filter-templates" onchange="loadCycles()"
+                               class="w-4 h-4 rounded bg-dark-700 border-dark-600 text-accent focus:ring-accent">
+                        <span class="text-sm text-gray-300">Trainer Templates Only</span>
+                    </label>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Results -->
+        <div id="cycles-container" class="grid gap-4 md:grid-cols-2">
+            <!-- Cycles loaded via JS -->
+            <div class="col-span-full text-center py-8 text-gray-500">
+                Loading cycles...
+            </div>
+        </div>
+        
+        <!-- Load More -->
+        <div id="load-more-container" class="text-center mt-6 hidden">
+            <button onclick="loadMore()" 
+                    class="px-6 py-2 bg-dark-700 text-gray-300 rounded-lg hover:bg-dark-600 transition-colors">
+                Load More
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+let currentOffset = 0;
+const pageSize = 20;
+
+async function loadCycles(reset = true) {
+    if (reset) {
+        currentOffset = 0;
+    }
+    
+    const container = document.getElementById('cycles-container');
+    const loadMoreBtn = document.getElementById('load-more-container');
+    
+    if (reset) {
+        container.innerHTML = '<div class="col-span-full text-center py-8 text-gray-500">Loading...</div>';
+    }
+    
+    const splitType = document.getElementById('filter-split').value;
+    const sortBy = document.getElementById('filter-sort').value;
+    const templatesOnly = document.getElementById('filter-templates').checked;
+    
+    try {
+        const endpoint = templatesOnly ? '/api/library/templates' : '/api/library/cycles';
+        const params = new URLSearchParams({
+            limit: pageSize,
+            offset: currentOffset,
+            sort: sortBy
+        });
+        
+        if (splitType) {
+            params.append('split_type', splitType);
+        }
+        
+        const response = await fetch(`${endpoint}?${params}`);
+        const data = await response.json();
+        
+        const cycles = templatesOnly ? data.templates : data.cycles;
+        
+        if (reset) {
+            container.innerHTML = '';
+        }
+        
+        if (!cycles || cycles.length === 0) {
+            if (reset) {
+                container.innerHTML = `
+                    <div class="col-span-full text-center py-8">
+                        <p class="text-gray-500 mb-2">No cycles found</p>
+                        <p class="text-sm text-gray-600">Try adjusting your filters</p>
+                    </div>
+                `;
+            }
+            loadMoreBtn.classList.add('hidden');
+            return;
+        }
+        
+        cycles.forEach(cycle => {
+            container.appendChild(createCycleCard(cycle, templatesOnly));
+        });
+        
+        // Show/hide load more
+        if (cycles.length >= pageSize) {
+            loadMoreBtn.classList.remove('hidden');
+        } else {
+            loadMoreBtn.classList.add('hidden');
+        }
+        
+    } catch (err) {
+        console.error('Error loading cycles:', err);
+        if (reset) {
+            container.innerHTML = '<div class="col-span-full text-center py-8 text-red-400">Error loading cycles</div>';
+        }
+    }
+}
+
+function loadMore() {
+    currentOffset += pageSize;
+    loadCycles(false);
+}
+
+function createCycleCard(cycle, isTemplate) {
+    const cycleData = cycle.training_cycles || {};
+    const card = document.createElement('a');
+    card.href = cycle.share_url;
+    card.className = 'block bg-dark-800 border border-dark-600 rounded-xl p-4 hover:border-dark-500 transition-colors';
+    
+    const splitDisplay = {
+        'ppl': 'Push/Pull/Legs',
+        'upper_lower': 'Upper/Lower',
+        'full_body': 'Full Body',
+        'bro_split': 'Bro Split'
+    };
+    
+    card.innerHTML = `
+        <div class="flex items-start justify-between mb-2">
+            <h3 class="font-semibold text-gray-100">${cycle.title || cycleData.name || 'Untitled Cycle'}</h3>
+            ${cycle.is_template ? '<span class="px-2 py-0.5 text-xs bg-accent/20 text-accent rounded">Template</span>' : ''}
+        </div>
+        
+        ${cycle.description ? `<p class="text-sm text-gray-400 mb-3 line-clamp-2">${cycle.description}</p>` : ''}
+        
+        <div class="flex flex-wrap gap-2 text-xs text-gray-500 mb-3">
+            <span>${splitDisplay[cycleData.split_type] || cycleData.split_type || 'Custom'}</span>
+            <span>•</span>
+            <span>${cycleData.length_weeks || '?'} weeks</span>
+            <span>•</span>
+            <span>${cycleData.days_per_week || '?'} days/week</span>
+        </div>
+        
+        <div class="flex items-center justify-between text-xs">
+            <div class="flex items-center gap-2">
+                <span class="text-gray-400">by ${isTemplate ? (cycle.trainer_name || 'Trainer') : (cycle.author_name || 'Anonymous')}</span>
+                ${cycle.is_trainer ? '<span class="text-accent">✓</span>' : ''}
+            </div>
+            <div class="flex items-center gap-3 text-gray-500">
+                <span>👁️ ${cycle.view_count || 0}</span>
+                <span>📋 ${cycle.copy_count || 0}</span>
+            </div>
+        </div>
+        
+        ${cycle.tags && cycle.tags.length > 0 ? `
+            <div class="flex flex-wrap gap-1 mt-3">
+                ${cycle.tags.slice(0, 3).map(tag => `<span class="px-2 py-0.5 text-xs bg-dark-700 text-gray-400 rounded">${tag}</span>`).join('')}
+                ${cycle.tags.length > 3 ? `<span class="text-xs text-gray-500">+${cycle.tags.length - 3}</span>` : ''}
+            </div>
+        ` : ''}
+    `;
+    
+    return card;
+}
+
+// Initial load
+document.addEventListener('DOMContentLoaded', () => {
+    loadCycles();
+});
+</script>
+{% endblock %}

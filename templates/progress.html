@@ -345,6 +345,11 @@
                         <h3 class="font-medium text-gray-100">Personal Records</h3>
                     </div>
                     
+                    <button onclick="sharePR('{{ pr.id }}', '{{ pr.exercise_name }}', {{ pr.weight }}, {{ pr.reps }})"
+                            class="text-xs text-gray-400 hover:text-accent">
+                        Share
+                    </button>
+                    
                     {% if all_prs %}
                     <div class="divide-y divide-dark-600">
                         {% for pr in all_prs %}
@@ -1209,6 +1214,29 @@
         const exercise = selectedExercises.find(e => e.id === exerciseId);
         if (exercise) {
             toggleExercise(exerciseId, exercise.name, exercise.muscle_group || '');
+        }
+    }
+
+    async function sharePR(prId, exerciseName, weight, reps) {
+        const response = await fetch('/api/share/achievement', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                type: 'pr',
+                data: {
+                    exercise_name: exerciseName,
+                    weight: weight,
+                    reps: reps,
+                    unit: 'lbs',
+                    date: new Date().toLocaleDateString()
+                }
+            })
+        });
+        
+        const data = await response.json();
+        if (data.share_url) {
+            navigator.clipboard.writeText(data.share_url);
+            alert('Share link copied to clipboard!');
         }
     }
 </script>
