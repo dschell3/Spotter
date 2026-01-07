@@ -3,7 +3,7 @@ Database functions for Social Features (Phase 6)
 Handles sharing cycles, public library, and social sharing.
 """
 
-from config import supabase
+from db import get_supabase_client
 from datetime import datetime
 import secrets
 import string
@@ -39,11 +39,11 @@ def share_cycle(user_id: str, cycle_id: str, is_public: bool = False,
         The shared_cycle record with share_code
     """
     # Check if already shared
-    existing = supabase.table('shared_cycles').select('*').eq('cycle_id', cycle_id).eq('user_id', user_id).execute()
+    existing = get_supabase_client().table('shared_cycles').select('*').eq('cycle_id', cycle_id).eq('user_id', user_id).execute()
     
     if existing.data:
         # Update existing share settings
-        result = supabase.table('shared_cycles').update({
+        result = get_supabase_client().table('shared_cycles').update({
             'is_public': is_public,
             'is_template': is_template,
             'title': title,
@@ -58,13 +58,13 @@ def share_cycle(user_id: str, cycle_id: str, is_public: bool = False,
     
     # Ensure uniqueness (retry if collision)
     for _ in range(5):
-        check = supabase.table('shared_cycles').select('id').eq('share_code', share_code).execute()
+        check = get_supabase_client().table('shared_cycles').select('id').eq('share_code', share_code).execute()
         if not check.data:
             break
         share_code = generate_share_code()
     
     # Create share record
-    result = supabase.table('shared_cycles').insert({
+    result = get_supabase_client().table('shared_cycles').insert({
         'cycle_id': cycle_id,
         'user_id': user_id,
         'share_code': share_code,
@@ -80,7 +80,7 @@ def share_cycle(user_id: str, cycle_id: str, is_public: bool = False,
 
 def unshare_cycle(user_id: str, cycle_id: str):
     """Remove a cycle from sharing."""
-    result = supabase.table('shared_cycles').delete().eq('cycle_id', cycle_id).eq('user_id', user_id).execute()
+    result = get_supabase_client().table('shared_cycles').delete().eq('cycle_id', cycle_id).eq('user_id', user_id).execute()
     return result.data[0] if result.data else None
 
 
@@ -90,7 +90,7 @@ def get_shared_cycle_by_code(share_code: str):
     Also increments view count.
     """
     # Get the shared cycle record
-    result = supabase.table('shared_cycles').select('''
+    result = get_supabase_client().table('shared_cycles').select('''
         *,
         training_cycles (
             id,
@@ -108,7 +108,7 @@ def get_shared_cycle_by_code(share_code: str):
     shared = result.data[0]
     
     # Increment view count
-    supabase.table('shared_cycles').update({
+    get_supabase_client().table('shared_cycles').update({
         'view_count': shared.get('view_count', 0) + 1
     }).eq('id', shared['id']).execute()
     
@@ -117,7 +117,7 @@ def get_shared_cycle_by_code(share_code: str):
 
 def get_user_shared_cycles(user_id: str):
     """Get all cycles shared by a user."""
-    result = supabase.table('shared_cycles').select('''
+    result = get_supabase_client().table('shared_cycles').select('''
         *,
         training_cycles (
             id,
@@ -148,7 +148,7 @@ def get_public_cycles(limit: int = 20, offset: int = 0,
         tags: Filter by tags (any match)
         sort_by: 'recent', 'popular', 'most_copied'
     """
-    query = supabase.table('shared_cycles').select('''
+    query = get_supabase_client().table('shared_cycles').select('''
         *,
         training_cycles (
             id,
@@ -185,7 +185,7 @@ def get_public_cycles(limit: int = 20, offset: int = 0,
 
 def get_template_cycles(trainer_id: str = None):
     """Get template cycles, optionally filtered by trainer."""
-    query = supabase.table('shared_cycles').select('''
+    query = get_supabase_client().table('shared_cycles').select('''
         *,
         training_cycles (
             id,
@@ -249,7 +249,7 @@ def copy_shared_cycle(share_code: str, user_id: str, new_name: str = None):
         'status': 'planned'  # Start as planned, not active
     }
     
-    result = supabase.table('training_cycles').insert(new_cycle_data).execute()
+    result = get_supabase_client().table('training_cycles').insert(new_cycle_data).execute()
     if not result.data:
         return None, "Failed to create cycle"
     
@@ -265,10 +265,10 @@ def copy_shared_cycle(share_code: str, user_id: str, new_name: str = None):
             'workout_type': template.get('workout_type'),
             'exercises': template.get('exercises', [])
         }
-        supabase.table('cycle_workout_templates').insert(template_data).execute()
+        get_supabase_client().table('cycle_workout_templates').insert(template_data).execute()
     
     # Record the copy
-    supabase.table('cycle_copies').insert({
+    get_supabase_client().table('cycle_copies').insert({
         'shared_cycle_id': shared['id'],
         'source_cycle_id': source_cycle['id'],
         'new_cycle_id': new_cycle_id,
@@ -276,7 +276,7 @@ def copy_shared_cycle(share_code: str, user_id: str, new_name: str = None):
     }).execute()
     
     # Increment copy count
-    supabase.table('shared_cycles').update({
+    get_supabase_client().table('shared_cycles').update({
         'copy_count': shared.get('copy_count', 0) + 1
     }).eq('id', shared['id']).execute()
     
@@ -304,7 +304,7 @@ def create_shared_achievement(user_id: str, achievement_type: str,
     
     # Ensure uniqueness
     for _ in range(5):
-        check = supabase.table('shared_achievements').select('id').eq('share_code', share_code).execute()
+        check = get_supabase_client().table('shared_achievements').select('id').eq('share_code', share_code).execute()
         if not check.data:
             break
         share_code = generate_share_code()
@@ -321,13 +321,13 @@ def create_shared_achievement(user_id: str, achievement_type: str,
         from datetime import timedelta
         data['expires_at'] = (datetime.utcnow() + timedelta(days=expires_days)).isoformat()
     
-    result = supabase.table('shared_achievements').insert(data).execute()
+    result = get_supabase_client().table('shared_achievements').insert(data).execute()
     return result.data[0] if result.data else None
 
 
 def get_shared_achievement(share_code: str):
     """Get a shared achievement by code."""
-    result = supabase.table('shared_achievements').select('*').eq('share_code', share_code).execute()
+    result = get_supabase_client().table('shared_achievements').select('*').eq('share_code', share_code).execute()
     
     if not result.data:
         return None
@@ -362,13 +362,13 @@ def update_public_profile(user_id: str, updates: dict):
     if not filtered:
         return None
     
-    result = supabase.table('profiles').update(filtered).eq('id', user_id).execute()
+    result = get_supabase_client().table('profiles').update(filtered).eq('id', user_id).execute()
     return result.data[0] if result.data else None
 
 
 def get_public_profile(profile_slug: str):
     """Get a public profile by slug."""
-    result = supabase.table('profiles').select('''
+    result = get_supabase_client().table('profiles').select('''
         id,
         display_name,
         public_display_name,
@@ -389,7 +389,7 @@ def get_public_profile(profile_slug: str):
 
 def check_profile_slug_available(slug: str, exclude_user_id: str = None):
     """Check if a profile slug is available."""
-    query = supabase.table('profiles').select('id').eq('profile_slug', slug)
+    query = get_supabase_client().table('profiles').select('id').eq('profile_slug', slug)
     
     if exclude_user_id:
         query = query.neq('id', exclude_user_id)
