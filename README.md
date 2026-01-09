@@ -1,57 +1,91 @@
-# Workout Tracker
+# Spotter
 
-A personal workout tracking PWA inspired by Persist, designed for hypertrophy training with a compressed PPL split.
+A personal workout tracking PWA designed for hypertrophy training with customizable training splits. Built for personal trainers and fitness enthusiasts who want a simple, mobile-first workout companion.
+
+**Live Demo**: [spotter-a1ux.onrender.com](https://spotter-a1ux.onrender.com)
 
 ## Features
 
-### Phase 1 (MVP) ✅
+### Workout Tracking
 - Mobile-optimized workout execution view
-- Hardcoded PPL×2 routine (3 days)
-- Set/rep/weight tracking with local storage
-- Form cues for each exercise
+- Set/rep/weight tracking with cloud sync
+- Form cues and exercise demonstrations (YouTube integration)
 - Progress bar and completion tracking
-- PWA installable on mobile devices
 - High-contrast dark theme for gym visibility
+- PWA installable on mobile devices
 
-### Phase 2 ✅
-- Supabase PostgreSQL database
-- User authentication (email/password)
-- Cloud-synced workout history
-- Profile page with user settings
-- Exercises and templates stored in database
+### Training Cycles
+- Plan 4, 6, or 8 week training blocks
+- Multiple split types: PPL, Upper/Lower, Full Body, Custom
+- Heavy/Light structure with intelligent rotation
+- Drag-and-drop workout rescheduling
+- Exercise substitution by muscle group
+- Copy previous cycles as templates
 
-### Phase 3 (NEW) ✅
-- **Training Cycles**: Plan 4, 6, or 8 week training blocks
-- **Weekly Planning View**: Horizontal calendar showing scheduled workouts
-- **Smart Scheduling**: Auto-populates based on your split type and preferred training days
-- **Heavy/Light Structure**: PPL×2 with intelligent heavy/light rotation
-- **Exercise Substitution**: Swap exercises with same muscle group alternatives
-- **Drag & Reschedule**: Move workouts within the week as your schedule changes
-- **Cycle Copy**: Start new cycles from previous ones with tweaks
-- **Progressive Overload Suggestions**: Weight increase recommendations based on performance
-- **Profile Training Settings**: Configure split type, days/week, cycle length, preferred days
+### Progress Analytics
+- Strength progression charts per exercise
+- Volume tracking over time
+- Consistency heatmap (GitHub-style)
+- Personal records (PR) tracking and celebrations
+- Export data to CSV or PDF
+
+### Notifications
+- Email workout reminders (configurable hours before)
+- SMS notifications for important nudges
+- Inactivity reminders (1 week and 1 month)
+- Powered by Resend (email) and Twilio (SMS)
+
+### Social & Sharing
+- Share training cycles via unique links
+- Public cycle library for discovery
+- Trainer templates for client distribution
+- Share PRs and workout completions to social media
+- Copy shared cycles to your account with one click
+
+### Authentication
+- Email/password authentication
+- Google OAuth sign-in
+- Secure session management via Supabase Auth
 
 ## Tech Stack
 
-- **Backend**: Flask
-- **Database**: Supabase (PostgreSQL)
-- **Auth**: Supabase Auth
-- **Frontend**: Jinja2 + Tailwind CSS + Vanilla JS
-- **Hosting**: Render (planned)
+| Layer | Technology |
+|-------|------------|
+| **Backend** | Flask (Python) |
+| **Database** | Supabase (PostgreSQL) |
+| **Auth** | Supabase Auth + Google OAuth |
+| **Frontend** | Jinja2 + Tailwind CSS + Vanilla JS |
+| **Charts** | Chart.js |
+| **Email** | Resend |
+| **SMS** | Twilio |
+| **Hosting** | Render |
+| **Cron Jobs** | cron-job.org |
 
 ## Quick Start
 
+### Prerequisites
+- Python 3.9+
+- Supabase account
+- (Optional) Resend account for emails
+- (Optional) Twilio account for SMS
+
+### Installation
+
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/workout-app.git
+cd workout-app
+
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # or `venv\Scripts\activate` on Windows
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install dependencies
 pip install -r requirements.txt
 
 # Set up environment variables
 cp .env.example .env
-# Edit .env with your Supabase credentials
+# Edit .env with your credentials
 
 # Run development server
 python app.py
@@ -59,136 +93,187 @@ python app.py
 
 Visit `http://localhost:5000` in your browser.
 
+### Environment Variables
+
+```env
+# Flask
+SECRET_KEY=your-secret-key
+FLASK_ENV=development
+
+# Supabase
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_KEY=your-anon-key
+
+# Google OAuth
+GOOGLE_CLIENT_ID=your-client-id
+GOOGLE_CLIENT_SECRET=your-client-secret
+
+# Notifications (optional)
+RESEND_API_KEY=re_xxx
+NOTIFICATION_FROM_EMAIL=notifications@yourdomain.com
+TWILIO_ACCOUNT_SID=ACxxx
+TWILIO_AUTH_TOKEN=xxx
+TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
+CRON_SECRET=random-secret-for-cron-auth
+```
+
 ## Database Setup
 
-1. Create a project at [supabase.com](https://supabase.com)
-2. Go to SQL Editor and run these scripts in order:
-   - `schema.sql` - Base tables
-   - `seed.sql` - Exercises and workout templates
-   - `schema_phase3.sql` - Cycles and planning tables
-   - `seed_phase3.sql` - Additional exercises for substitutions
-3. Update your `.env` file with Supabase URL and anon key
+Run these SQL scripts in Supabase SQL Editor (in order):
 
-## New in Phase 3: Cycles & Planning
-
-### Training Cycles
-A cycle is a 4-8 week training block where:
-- Exercises stay consistent throughout (no weekly rotation)
-- Progressive overload is tracked week-to-week
-- Heavy/Light structure alternates each session
-
-### PPL×2 (3-Day) Structure
-- **Day 1**: Push (Heavy) + Pull (Light)
-- **Day 2**: Legs (Heavy) + Push (Light)  
-- **Day 3**: Pull (Heavy) + Legs (Light)
-
-Heavy = lower rep ranges (4-8), longer rest
-Light = higher rep ranges (10-15), shorter rest
-
-### Weekly Planning
-Navigate to `/plan` to see your weekly calendar:
-- Workouts auto-populate based on your cycle
-- Drag to reschedule within the week
-- Mark workouts as completed or skipped
-- View progress across the full cycle
-
-### Creating a New Cycle
-1. Go to Profile → New Cycle (or `/cycle/new`)
-2. Choose: Start fresh from template OR copy from previous cycle
-3. Select your split type and cycle length
-4. Set your preferred training days
-5. Review and swap exercises as needed
-6. Start the cycle
-
-## PWA Installation
-
-On mobile (iOS/Android):
-1. Open the app in Safari/Chrome
-2. Tap "Share" → "Add to Home Screen"
-3. The app will work offline and feel native
-
-## Project Roadmap
-
-### Phase 1: MVP ✅
-- Workout execution view
-- Local storage persistence
-- PWA setup
-
-### Phase 2: Database & Auth ✅
-- Supabase integration
-- User authentication
-- Cloud-synced workout history
-
-### Phase 3: Planning Dashboard ✅
-- Training cycles (4/6/8 weeks)
-- Weekly workout planning view
-- Exercise substitution by muscle group
-- Profile training settings
-- Smart workout suggestions
-
-### Phase 4: Progress Tracking
-- [ ] Progress charts (weight per exercise, volume, consistency)
-- [ ] Personal records tracking
-- [ ] Export workout data
-- [ ] Visual progress dashboard
-
-### Phase 5: Polish
-- [ ] Video links for exercise demos
-- [ ] Notifications/reminders
-- [ ] Google OAuth
-- [ ] Social features (optional)
+1. `schema.sql` - Base tables (users, exercises, workouts)
+2. `seed.sql` - Exercise library and workout templates
+3. `schema_phase3.sql` - Training cycles and scheduling
+4. `seed_phase3.sql` - Additional exercise variations
+5. `schema_progress.sql` - Progress tracking and PRs
+6. `schema_notifications.sql` - Notification preferences
+7. `schema_social.sql` - Sharing and social features
 
 ## Project Structure
 
 ```
 workout-app/
-├── app.py                 # Flask application
-├── config.py              # Configuration settings
-├── db.py                  # Database queries (base)
-├── db_cycles.py           # Database queries (cycles/planning)
-├── requirements.txt       # Python dependencies
-├── schema.sql             # Base database schema
-├── schema_phase3.sql      # Phase 3 schema additions
-├── seed.sql               # Exercise/template seed data
-├── seed_phase3.sql        # Additional exercise variations
-├── data/
-│   └── routines.py        # Fallback hardcoded data
+├── app.py                    # Main Flask application
+├── config.py                 # Configuration settings
+├── db.py                     # Core database queries
+├── db_cycles.py              # Cycle/planning queries
+├── db_progress.py            # Progress tracking queries
+├── db_notifications.py       # Notification queries
+├── db_social.py              # Social feature queries
+├── db_export.py              # CSV/PDF export
+├── notification_service.py   # Email/SMS sending
+├── workout_generator.py      # Workout generation logic
+├── requirements.txt          # Python dependencies
+│
+├── schema.sql                # Base database schema
+├── schema_phase3.sql         # Cycles schema
+├── schema_progress.sql       # Progress schema
+├── schema_notifications.sql  # Notifications schema
+├── schema_social.sql         # Social features schema
+├── seed.sql                  # Exercise seed data
+│
 ├── static/
-│   ├── icons/             # PWA icons
+│   ├── icons/                # PWA icons
 │   ├── js/
-│   │   └── sw.js          # Service worker
-│   └── manifest.json      # PWA manifest
+│   │   └── sw.js             # Service worker
+│   └── manifest.json         # PWA manifest
+│
 └── templates/
-    ├── base.html          # Base template with Tailwind
-    ├── index.html         # Day selection page
-    ├── workout.html       # Workout execution view
-    ├── history.html       # Workout history
-    ├── profile.html       # User profile + training settings
-    ├── plan.html          # Weekly planning view (NEW)
-    ├── cycle_new.html     # Create new cycle wizard (NEW)
-    ├── cycle_view.html    # Cycle overview (NEW)
+    ├── base.html             # Base template
+    ├── index.html            # Home/workout selection
+    ├── workout.html          # Workout execution
+    ├── plan.html             # Weekly planning view
+    ├── progress.html         # Progress dashboard
+    ├── history.html          # Workout history
+    ├── profile.html          # User profile
+    ├── notifications.html    # Notification settings
+    ├── library.html          # Public cycle library
+    ├── cycle_new.html        # New cycle wizard
+    ├── cycle_view.html       # Cycle overview
+    ├── shared_cycle.html     # Public shared cycle view
+    ├── shared_pr.html        # Shareable PR card
+    ├── shared_workout.html   # Shareable workout card
     └── auth/
-        ├── login.html     
-        └── signup.html    
+        ├── login.html
+        ├── signup.html
+        └── google_callback.html
 ```
 
-## API Endpoints (Phase 3)
+## API Endpoints
+
+### Authentication
+- `POST /login` - Email/password login
+- `POST /signup` - Create account
+- `GET /auth/google` - Initiate Google OAuth
+- `GET /auth/google/callback` - Google OAuth callback
+- `POST /logout` - Log out
+
+### Workouts
+- `GET /workout/<day_id>` - Workout execution view
+- `POST /api/workout/start` - Start a workout
+- `POST /api/workout/<id>/set` - Log a set
+- `POST /api/workout/<id>/complete` - Complete workout
 
 ### Cycles
 - `POST /api/cycle/create` - Create new cycle
 - `POST /api/cycle/<id>/activate` - Start a cycle
 - `POST /api/cycle/<id>/complete` - End a cycle
+- `POST /api/schedule/<id>/reschedule` - Move workout
+- `POST /api/schedule/<id>/skip` - Skip workout
 
-### Scheduling
-- `POST /api/schedule/<id>/reschedule` - Move workout to new date
-- `POST /api/schedule/<id>/skip` - Skip a workout
+### Progress
+- `GET /api/progress/exercise-history` - Exercise progression data
+- `GET /api/progress/volume` - Volume over time
+- `GET /api/progress/consistency` - Consistency stats
+- `POST /api/progress/check-pr` - Check for new PR
+- `GET /api/export/csv` - Export to CSV
+- `GET /api/export/pdf` - Export to PDF
 
-### Exercises
-- `GET /api/exercises/<muscle_group>/substitutes` - Get replacement options
+### Social
+- `POST /api/cycle/<id>/share` - Share a cycle
+- `POST /api/cycle/<id>/unshare` - Remove sharing
+- `GET /api/library/cycles` - Browse public cycles
+- `POST /api/shared/cycle/<code>/copy` - Copy shared cycle
+- `POST /api/share/achievement` - Share PR/workout
 
-### Profile
-- `POST /api/profile/settings` - Update training preferences
+### Notifications
+- `GET /api/notifications/preferences` - Get settings
+- `POST /api/notifications/preferences` - Update settings
+- `GET /api/cron/notifications` - Process notifications (cron)
+
+## PWA Installation
+
+### iOS
+1. Open the app in Safari
+2. Tap the Share button
+3. Select "Add to Home Screen"
+
+### Android
+1. Open the app in Chrome
+2. Tap the menu (⋮)
+3. Select "Add to Home Screen"
+
+## Deployment
+
+### Render
+
+1. Connect your GitHub repository to Render
+2. Create a new Web Service
+3. Set build command: `pip install -r requirements.txt`
+4. Set start command: `gunicorn app:app`
+5. Add environment variables in Render dashboard
+
+### Cron Jobs
+
+Set up at [cron-job.org](https://cron-job.org) (free):
+- URL: `https://your-app.onrender.com/api/cron/notifications?secret=YOUR_CRON_SECRET`
+- Schedule: Every hour (`0 * * * *`)
+
+## Development Roadmap
+
+### Completed ✅
+
+- **Phase 1**: MVP - Workout execution, PWA, local storage
+- **Phase 2**: Database & Auth - Supabase, user accounts, cloud sync
+- **Phase 3**: Planning - Training cycles, scheduling, exercise substitution
+- **Phase 4**: Progress - Charts, PRs, heatmap, CSV/PDF export
+- **Phase 5**: Notifications - Email reminders, SMS nudges, cron automation
+- **Phase 6**: Social - Cycle sharing, public library, trainer templates
+
+### Future Ideas 💡
+
+- Apple Watch / Wear OS companion app
+- AI-powered workout suggestions
+- Barcode scanning for gym equipment
+- Integration with fitness trackers
+- Multi-language support
+
+## Contributing
+
+This is a personal project, but suggestions and feedback are welcome! Feel free to open an issue or submit a PR.
 
 ## License
 
-Personal project - feel free to use as inspiration for your own workout tracker!
+MIT License - feel free to use as inspiration for your own workout tracker!
+
+---
