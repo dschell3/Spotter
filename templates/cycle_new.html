@@ -1400,7 +1400,7 @@
             if (response.ok) {
                 const newEx = await response.json();
                 allExercises.push(newEx);
-                selectExercise(newEx.id, newEx.name, newEx.muscle_group, newEx.equipment, false);
+                selectExerciseById(newEx.id);
             } else throw new Error('Failed');
         } catch (err) { alert('Failed to add exercise'); }
     }
