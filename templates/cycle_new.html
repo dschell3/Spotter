@@ -1234,7 +1234,7 @@
         const filtered = allExercises.filter(e => (!search || e.name.toLowerCase().includes(search)) && (!muscle || e.muscle_group === muscle));
         
         document.getElementById('exercise-options').innerHTML = filtered.map(ex => `
-            <button onclick="selectExercise('${ex.id}', '${ex.name}', '${ex.muscle_group}', ${ex.is_compound}, '${ex.equipment || ''}')"
+            <button onclick="selectExerciseById('${ex.id}')"
                     class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 text-left">
                 <div>
                     <p class="text-gray-100">${ex.name}</p>
@@ -1244,30 +1244,34 @@
         `).join('') || '<p class="text-center text-gray-500 py-4">No exercises found</p>';
     }
     
-    function selectExercise(id, name, muscleGroup, isCompound) {
+    function selectExerciseById(exerciseId) {
+        const ex = allExercises.find(e => e.id === exerciseId);
+        if (!ex) return;
+        
         // Determine if this exercise should be heavy based on workout's focus
         let isHeavy = false;
         const targetWIdx = modalMode === 'swap' ? swapTarget.wIdx : addTarget.wIdx;
         const scheduleItem = cycleConfig.schedule[targetWIdx];
         if (scheduleItem && scheduleItem.heavyFocus) {
-            isHeavy = isMuscleInHeavyFocus(muscleGroup, scheduleItem.heavyFocus);
+            isHeavy = isMuscleInHeavyFocus(ex.muscle_group, scheduleItem.heavyFocus);
         }
         
         const data = {
-            id,
-            name,
-            muscle_group: muscleGroup,
-            equipment: equipment,
-            is_compound: isCompound,
+            id: ex.id,
+            name: ex.name,
+            muscle_group: ex.muscle_group,
+            equipment: ex.equipment,
+            is_compound: ex.is_compound,
             is_heavy: isHeavy,
-            sets_heavy: isCompound ? 4 : 3,
+            sets_heavy: ex.is_compound ? 4 : 3,
             sets_light: 3,
             rep_range: '8-12',
-            rep_range_heavy: isCompound ? '6-8' : '8-10',
+            rep_range_heavy: ex.is_compound ? '6-8' : '8-10',
             rep_range_light: '10-12',
-            rest_heavy: isCompound ? 180 : 60,
+            rest_heavy: ex.is_compound ? 180 : 60,
             rest_light: 60
         };
+        
         if (modalMode === 'swap' && swapTarget) {
             cycleConfig.weeklyExercises[currentWeek][swapTarget.wIdx][swapTarget.eIdx] = data;
         } else if (modalMode === 'add' && addTarget) {
