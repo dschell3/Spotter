@@ -1234,7 +1234,7 @@
         const filtered = allExercises.filter(e => (!search || e.name.toLowerCase().includes(search)) && (!muscle || e.muscle_group === muscle));
         
         document.getElementById('exercise-options').innerHTML = filtered.map(ex => `
-            <button onclick="selectExercise('${ex.id}', \`${ex.name.replace(/`/g, '\\`')}\`, '${ex.muscle_group}', '${ex.equipment || ''}', ${ex.is_compound || false})"
+            <button onclick="selectExercise('${ex.id}', '${ex.name}', '${ex.muscle_group}', ${ex.is_compound}, '${ex.equipment || ''}')"
                     class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 text-left">
                 <div>
                     <p class="text-gray-100">${ex.name}</p>
@@ -1257,6 +1257,7 @@
             id,
             name,
             muscle_group: muscleGroup,
+            equipment: equipment,
             is_compound: isCompound,
             is_heavy: isHeavy,
             sets_heavy: isCompound ? 4 : 3,
