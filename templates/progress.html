@@ -345,11 +345,6 @@
                         <h3 class="font-medium text-gray-100">Personal Records</h3>
                     </div>
                     
-                    <button onclick="sharePR('{{ pr.id }}', '{{ pr.exercise_name }}', {{ pr.weight }}, {{ pr.reps }})"
-                            class="text-xs text-gray-400 hover:text-accent">
-                        Share
-                    </button>
-                    
                     {% if all_prs %}
                     <div class="divide-y divide-dark-600">
                         {% for pr in all_prs %}
