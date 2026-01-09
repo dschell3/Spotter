@@ -904,9 +904,10 @@
     
     function isMuscleInHeavyFocus(muscleGroup, heavyFocus) {
         if (!heavyFocus || heavyFocus.length === 0) return false;
+        const muscleGroupLower = muscleGroup.toLowerCase();
         for (const focus of heavyFocus) {
             const muscles = FOCUS_TO_MUSCLES[focus.toLowerCase()] || [];
-            if (muscles.includes(muscleGroup)) return true;
+            if (muscles.includes(muscleGroupLower)) return true;
         }
         return false;
     }
