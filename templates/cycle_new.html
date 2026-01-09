@@ -1244,16 +1244,21 @@
         `).join('') || '<p class="text-center text-gray-500 py-4">No exercises found</p>';
     }
     
-    function selectExercise(id, name, muscle, equipment, isCompound = false) {
-        const isCustom = isCustomSplit();
-        const data = { 
-            id, 
-            name, 
-            muscle_group: muscle, 
-            equipment, 
-            is_heavy: false,
+    function selectExercise(id, name, muscleGroup, isCompound) {
+        // Determine if this exercise should be heavy based on workout's focus
+        let isHeavy = false;
+        const targetWIdx = modalMode === 'swap' ? swapTarget.wIdx : addTarget.wIdx;
+        const scheduleItem = cycleConfig.schedule[targetWIdx];
+        if (scheduleItem && scheduleItem.heavyFocus) {
+            isHeavy = isMuscleInHeavyFocus(muscleGroup, scheduleItem.heavyFocus);
+        }
+        
+        const data = {
+            id,
+            name,
+            muscle_group: muscleGroup,
             is_compound: isCompound,
-            sets: 3,
+            is_heavy: isHeavy,
             sets_heavy: isCompound ? 4 : 3,
             sets_light: 3,
             rep_range: '8-12',
