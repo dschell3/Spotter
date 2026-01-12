@@ -181,7 +181,7 @@
                                 
                                 <!-- Actions - Bottom -->
                                 <div class="flex gap-2 pt-2 border-t border-dark-600">
-                                    {% if workout.status == 'scheduled' %}
+                                    {% if workout.status in ['scheduled', 'rescheduled'] %}
                                     <a href="{{ url_for('workout_from_schedule', scheduled_id=workout.id) }}" 
                                        class="flex-1 py-1.5 text-center text-xs font-medium bg-accent text-dark-900 rounded hover:bg-accent/90 transition-colors">
                                         Start

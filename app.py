@@ -672,11 +672,11 @@ def plan():
         'completion_rate': round((completed / total_scheduled * 100) if total_scheduled > 0 else 0)
     }
     
-    # Find next workout (first scheduled workout from today forward)
+    # Find next workout (first scheduled or rescheduled workout from today forward)
     next_workout = None
     for workout in sorted(scheduled_workouts, key=lambda w: w['scheduled_date']):
         workout_date = datetime.strptime(workout['scheduled_date'], '%Y-%m-%d').date()
-        if workout.get('status') == 'scheduled' and workout_date >= today:
+        if workout.get('status') in ['scheduled', 'rescheduled'] and workout_date >= today:
             next_workout = workout
             break
     
