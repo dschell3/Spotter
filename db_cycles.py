@@ -464,6 +464,19 @@ def get_scheduled_workouts_for_cycle(cycle_id: str):
     return response.data
 
 
+def get_scheduled_workout_by_id(scheduled_id: str):
+    """Get a single scheduled workout by ID."""
+    supabase = get_supabase_client()
+    
+    response = supabase.table('scheduled_workouts')\
+        .select('*, cycle_workout_slots(*)')\
+        .eq('id', scheduled_id)\
+        .single()\
+        .execute()
+    
+    return response.data if response.data else None
+
+
 def create_scheduled_workout(user_id: str, cycle_id: str, slot_id: str, 
                              scheduled_date: date, week_number: int):
     """Create a scheduled workout entry."""

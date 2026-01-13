@@ -664,7 +664,7 @@ def plan():
     # Calculate week stats
     total_scheduled = len(scheduled_workouts)
     completed = sum(1 for w in scheduled_workouts if w.get('status') == 'completed')
-    scheduled_remaining = sum(1 for w in scheduled_workouts if w.get('status') == 'scheduled')
+    scheduled_remaining = sum(1 for w in scheduled_workouts if w.get('status') in ('scheduled', 'rescheduled'))
     
     week_stats = {
         'total': total_scheduled,
@@ -1757,6 +1757,11 @@ def api_reschedule_workout(scheduled_id):
     new_date = datetime.strptime(data['new_date'], '%Y-%m-%d').date()
     
     try:
+        # Check if workout is already completed
+        workout = db_cycles.get_scheduled_workout_by_id(scheduled_id)
+        if workout and workout.get('status') == 'completed':
+            return jsonify({'error': 'Cannot reschedule a completed workout'}), 400
+        
         result = db_cycles.reschedule_workout(scheduled_id, new_date)
         return jsonify({'success': True, 'workout': result})
     except Exception as e:

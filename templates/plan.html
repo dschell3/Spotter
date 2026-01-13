@@ -153,12 +153,14 @@
                         
                         {% if day_workouts %}
                             {% for workout in day_workouts %}
-                            <div class="workout-card flex-1 flex flex-col rounded-lg transition-all"
-                                 draggable="true"
-                                 data-workout-id="{{ workout.id }}"
-                                 data-slot-id="{{ workout.cycle_workout_slot_id }}"
-                                 ondragstart="handleDragStart(event)"
-                                 ondragend="handleDragEnd(event)">
+                            <div class="workout-card flex-1 flex flex-col rounded-lg transition-all {{ 'cursor-grab active:cursor-grabbing' if workout.status != 'completed' else '' }}"
+                                {% if workout.status != 'completed' %}
+                                draggable="true"
+                                ondragstart="handleDragStart(event)"
+                                ondragend="handleDragEnd(event)"
+                                {% endif %}
+                                data-workout-id="{{ workout.id }}"
+                                data-slot-id="{{ workout.cycle_workout_slot_id }}">
                                 
                                 <!-- Status Badge - Top -->
                                 <div class="mb-2">
