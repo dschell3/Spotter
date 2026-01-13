@@ -329,6 +329,54 @@ def create_cycle_exercise(cycle_id: str, slot_id: str, exercise_id: str,
     return response.data[0] if response.data else None
 
 
+def create_cycle_exercises_bulk(exercises: list):
+    """
+    Bulk insert multiple cycle exercises in a single database call.
+    
+    Args:
+        exercises: List of dicts, each containing:
+            - cycle_id, cycle_workout_slot_id, exercise_id, exercise_name,
+            - muscle_group, is_heavy, order_index, sets_heavy, sets_light,
+            - rep_range_heavy, rep_range_light, rest_seconds_heavy, rest_seconds_light,
+            - week_number (optional)
+    
+    Returns:
+        List of created exercise records
+    """
+    if not exercises:
+        return []
+    
+    supabase = get_supabase_client()
+    
+    # Normalize the data structure for each exercise
+    insert_data = []
+    for ex in exercises:
+        data = {
+            'cycle_id': ex['cycle_id'],
+            'cycle_workout_slot_id': ex['slot_id'],
+            'exercise_id': ex['exercise_id'],
+            'exercise_name': ex['exercise_name'],
+            'muscle_group': ex.get('muscle_group', ''),
+            'is_heavy': ex.get('is_heavy', False),
+            'order_index': ex.get('order_index', 0),
+            'sets_heavy': ex.get('sets_heavy', 4),
+            'sets_light': ex.get('sets_light', 3),
+            'rep_range_heavy': ex.get('rep_range_heavy', '6-8'),
+            'rep_range_light': ex.get('rep_range_light', '10-12'),
+            'rest_seconds_heavy': ex.get('rest_heavy', 180),
+            'rest_seconds_light': ex.get('rest_light', 90)
+        }
+        
+        if ex.get('week_number') is not None:
+            data['week_number'] = ex['week_number']
+        
+        insert_data.append(data)
+    
+    response = supabase.table('cycle_exercises').insert(insert_data).execute()
+    
+    return response.data or []
+
+
 def update_cycle_exercise(exercise_id: str, updates: dict):
     """Update a cycle exercise."""
     supabase = get_supabase_client()

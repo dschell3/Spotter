@@ -1572,6 +1572,9 @@ def api_create_cycle():
         # Handle workout_slots with nested exercises and week_pattern
         workout_slots = data.get('workout_slots', [])
         
+        # Collect ALL exercises for bulk insert
+        all_exercises = []
+        
         # Create workout slots
         created_slots = []
         for i, slot_data in enumerate(workout_slots):
@@ -1582,76 +1585,67 @@ def api_create_cycle():
                 workout_name=slot_data.get('workout_name', slot_data.get('workoutName', f'Workout {i+1}')),
                 is_heavy_focus=slot_data.get('is_heavy_focus', slot_data.get('heavyFocus', [])),
                 order_index=slot_data.get('order_index', i),
-                week_pattern=slot_data.get('week_pattern')  # NEW: support week_pattern
+                week_pattern=slot_data.get('week_pattern')
             )
             if slot:
                 created_slots.append(slot)
                 
-                # Create exercises for this slot from nested structure
+                # Collect exercises for this slot (base exercises for all weeks)
                 slot_exercises = slot_data.get('exercises', [])
                 for j, ex_data in enumerate(slot_exercises):
-                    db_cycles.create_cycle_exercise(
-                        cycle_id=cycle['id'],
-                        slot_id=slot['id'],
-                        exercise_id=ex_data.get('exercise_id', ex_data.get('id')),
-                        exercise_name=ex_data.get('exercise_name', ex_data.get('name')),
-                        muscle_group=ex_data.get('muscle_group', ''),
-                        is_heavy=ex_data.get('is_heavy', False),
-                        order_index=j,
-                        sets_heavy=ex_data.get('sets_heavy', 4),
-                        sets_light=ex_data.get('sets_light', 3),
-                        rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
-                        rep_range_light=ex_data.get('rep_range_light', '10-12'),
-                        rest_heavy=ex_data.get('rest_heavy', 180),
-                        rest_light=ex_data.get('rest_light', 90),
-                        week_number=None  # Base exercises apply to all weeks
-                    )
+                    all_exercises.append({
+                        'cycle_id': cycle['id'],
+                        'slot_id': slot['id'],
+                        'exercise_id': ex_data.get('exercise_id', ex_data.get('id')),
+                        'exercise_name': ex_data.get('exercise_name', ex_data.get('name')),
+                        'muscle_group': ex_data.get('muscle_group', ''),
+                        'is_heavy': ex_data.get('is_heavy', False),
+                        'order_index': j,
+                        'sets_heavy': ex_data.get('sets_heavy', 4),
+                        'sets_light': ex_data.get('sets_light', 3),
+                        'rep_range_heavy': ex_data.get('rep_range_heavy', '6-8'),
+                        'rep_range_light': ex_data.get('rep_range_light', '10-12'),
+                        'rest_heavy': ex_data.get('rest_heavy', 180),
+                        'rest_light': ex_data.get('rest_light', 90),
+                        'week_number': None  # Base exercises apply to all weeks
+                    })
         
         # Handle weekly_exercises structure (per-week customizations)
         weekly_exercises = data.get('weekly_exercises', {})
         
         if weekly_exercises:
-            # weekly_exercises format: { "1": { "0": [...], "1": [...] }, "2": { ... } }
-            # Keys are week numbers (1-indexed), values are dicts of workout_index -> exercises
-            
             for week_num_str, week_workouts in weekly_exercises.items():
                 week_num = int(week_num_str)
                 
                 for workout_idx_str, exercises in week_workouts.items():
                     workout_idx = int(workout_idx_str)
                     
-                    # Find the corresponding slot
                     if workout_idx < len(created_slots):
                         slot = created_slots[workout_idx]
                         
-                        # Check if these exercises differ from the base (week 1) exercises
-                        # If week_num > 1 and exercises differ, store them with week_number
                         if week_num > 1:
-                            # Delete any existing week-specific exercises for this slot/week
-                            db_cycles.delete_cycle_exercises_for_week(
-                                cycle_id=cycle['id'],
-                                slot_id=slot['id'],
-                                week_number=week_num
-                            )
-                            
-                            # Create week-specific exercises
+                            # Collect week-specific exercises
                             for j, ex_data in enumerate(exercises):
-                                db_cycles.create_cycle_exercise(
-                                    cycle_id=cycle['id'],
-                                    slot_id=slot['id'],
-                                    exercise_id=ex_data.get('exercise_id', ex_data.get('id')),
-                                    exercise_name=ex_data.get('exercise_name', ex_data.get('name')),
-                                    muscle_group=ex_data.get('muscle_group', ''),
-                                    is_heavy=ex_data.get('is_heavy', False),
-                                    order_index=j,
-                                    sets_heavy=ex_data.get('sets_heavy', 4),
-                                    sets_light=ex_data.get('sets_light', 3),
-                                    rep_range_heavy=ex_data.get('rep_range_heavy', '6-8'),
-                                    rep_range_light=ex_data.get('rep_range_light', '10-12'),
-                                    rest_heavy=ex_data.get('rest_heavy', 180),
-                                    rest_light=ex_data.get('rest_light', 90),
-                                    week_number=week_num
-                                )
+                                all_exercises.append({
+                                    'cycle_id': cycle['id'],
+                                    'slot_id': slot['id'],
+                                    'exercise_id': ex_data.get('exercise_id', ex_data.get('id')),
+                                    'exercise_name': ex_data.get('exercise_name', ex_data.get('name')),
+                                    'muscle_group': ex_data.get('muscle_group', ''),
+                                    'is_heavy': ex_data.get('is_heavy', False),
+                                    'order_index': j,
+                                    'sets_heavy': ex_data.get('sets_heavy', 4),
+                                    'sets_light': ex_data.get('sets_light', 3),
+                                    'rep_range_heavy': ex_data.get('rep_range_heavy', '6-8'),
+                                    'rep_range_light': ex_data.get('rep_range_light', '10-12'),
+                                    'rest_heavy': ex_data.get('rest_heavy', 180),
+                                    'rest_light': ex_data.get('rest_light', 90),
+                                    'week_number': week_num
+                                })
+        
+        # BULK INSERT all exercises in one database call
+        if all_exercises:
+            db_cycles.create_cycle_exercises_bulk(all_exercises)
         
         # Generate the schedule for all weeks (with rotation support)
         if created_slots:
