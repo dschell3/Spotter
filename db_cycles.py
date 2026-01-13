@@ -564,8 +564,9 @@ def generate_cycle_schedule(user_id: str, cycle_id: str, start_date: date,
                     continue  # Skip this slot for this week
             
             # Calculate the actual date for this workout
-            days_until = slot['day_of_week']  # 0=Monday
-            workout_date = week_start + timedelta(days=days_until)
+            # Find Monday of this week, then add day_of_week
+            week_monday = week_start - timedelta(days=week_start.weekday())
+            workout_date = week_monday + timedelta(days=slot['day_of_week'])
             
             scheduled.append({
                 'user_id': user_id,

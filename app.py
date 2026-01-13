@@ -629,8 +629,9 @@ def plan():
         else:
             current_week = actual_current_week
         
-        # Calculate week_start for the requested week
-        week_start = cycle_start + timedelta(weeks=current_week - 1)
+        # Calculate week_start for the requested week (always align to Monday)
+        cycle_week_start = cycle_start + timedelta(weeks=current_week - 1)
+        week_start = cycle_week_start - timedelta(days=cycle_week_start.weekday())
         
         # Determine if viewing the actual current week
         is_current_week = (current_week == actual_current_week)
