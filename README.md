@@ -2,6 +2,8 @@
 
 A personal workout tracking PWA designed for hypertrophy training with customizable training splits. Built for personal trainers and fitness enthusiasts who want a simple, mobile-first workout companion.
 
+Largely Vibe-coded with Claude Code.
+
 **Live Demo**: [spotter-a1ux.onrender.com](https://spotter-a1ux.onrender.com)
 
 ## Features
