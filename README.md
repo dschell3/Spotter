@@ -253,7 +253,7 @@ Set up at [cron-job.org](https://cron-job.org) (free):
 
 ## Development Roadmap
 
-### Completed ✅
+### Completed 
 
 - **Phase 1**: MVP - Workout execution, PWA, local storage
 - **Phase 2**: Database & Auth - Supabase, user accounts, cloud sync
@@ -261,12 +261,20 @@ Set up at [cron-job.org](https://cron-job.org) (free):
 - **Phase 4**: Progress - Charts, PRs, heatmap, CSV/PDF export
 - **Phase 5**: Notifications - Email reminders, SMS nudges, cron automation
 - **Phase 6**: Social - Cycle sharing, public library, trainer templates
+- **Phase 6.1**: Personal Exercise Notes - User-specific notes per exercise
+- **Phase 6.2**: Mid-Workout Exercise Swap - Substitute exercises on-the-fly
+  - One-time swap (doesn't affect future scheduled workouts)
+  - Option to make swap permanent for the current cycle
+  - Quick access to substitutes filtered by same muscle group
+  - Swap disabled after completing any sets for that exercise
 
-### Future Ideas 💡
+### Future Ideas 
 
+- **AI "Snap to Identify"** - Photo-based equipment identification
+  - Take a photo of a gym machine → AI identifies it
+  - Shows relevant form cues and suggested exercises
 - Apple Watch / Wear OS companion app
 - AI-powered workout suggestions
-- Barcode scanning for gym equipment
 - Integration with fitness trackers
 - Multi-language support
 
@@ -277,5 +285,3 @@ This is a personal project, but suggestions and feedback are welcome! Feel free 
 ## License
 
 MIT License - feel free to use as inspiration for your own workout tracker!
-
----

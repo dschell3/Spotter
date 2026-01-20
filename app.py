@@ -1139,6 +1139,45 @@ def api_add_exercise():
     except Exception as e:
         print(f"Add exercise error: {e}")
         return jsonify({'error': str(e)}), 500
+    
+
+@app.route('/api/cycle/exercise/swap-permanent', methods=['POST'])
+@login_required
+def swap_exercise_permanent():
+    """Swap an exercise for all future occurrences in the current cycle."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    data = request.json
+    cycle_id = data.get('cycle_id')
+    old_exercise_id = data.get('old_exercise_id')
+    new_exercise_id = data.get('new_exercise_id')
+    new_exercise_name = data.get('new_exercise_name')
+    muscle_group = data.get('muscle_group')
+    slot_id = data.get('slot_id')  # Optional: limit to specific workout slot
+    
+    if not all([cycle_id, old_exercise_id, new_exercise_id, new_exercise_name, muscle_group]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    # Verify user owns this cycle
+    cycle = db_cycles.get_cycle_by_id(cycle_id)
+    if not cycle or cycle.get('user_id') != user['id']:
+        return jsonify({'error': 'Cycle not found'}), 404
+    
+    result = db_cycles.swap_exercise_in_cycle(
+        cycle_id=cycle_id,
+        old_exercise_id=old_exercise_id,
+        new_exercise_id=new_exercise_id,
+        new_exercise_name=new_exercise_name,
+        muscle_group=muscle_group,
+        slot_id=slot_id
+    )
+    
+    return jsonify({
+        'success': True,
+        'updated_count': result.get('updated', 0)
+    })
 
 
 @app.route('/api/exercises/generate-cues', methods=['POST'])

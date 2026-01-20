@@ -58,10 +58,26 @@
                             <div>
                                 <div class="flex items-center gap-2">
                                     <h3 class="font-medium text-gray-100">{{ exercise.name }}</h3>
-                                    <button onclick="event.stopPropagation(); ExerciseNotes.openModal('{{ exercise.id }}', '{{ exercise.name }}')"
-                                            class="note-icon-btn p-1 rounded hover:bg-dark-600 transition-colors"
-                                            data-exercise-id="{{ exercise.id }}"
-                                            title="Personal notes">
+                                    
+                                    <!-- Swap Button -->
+                                    <span onclick="event.stopPropagation(); openSwapModal({{ loop.index0 }})"
+                                        class="swap-btn p-1 rounded hover:bg-dark-600 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                        data-exercise-index="{{ loop.index0 }}"
+                                        role="button"
+                                        tabindex="0"
+                                        title="Swap exercise">
+                                        <svg class="w-4 h-4 text-gray-600 hover:text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+                                        </svg>
+                                    </span>
+                                    
+                                    <!-- Notes Button -->
+                                    <span onclick="event.stopPropagation(); ExerciseNotes.openModal('{{ exercise.id }}', '{{ exercise.name }}')"
+                                        class="note-icon-btn p-1 rounded hover:bg-dark-600 transition-colors cursor-pointer"
+                                        data-exercise-id="{{ exercise.id }}"
+                                        role="button"
+                                        tabindex="0"
+                                        title="Personal notes">
                                         <!-- Empty note icon (gray) -->
                                         <svg class="note-icon-empty w-4 h-4 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
@@ -70,8 +86,9 @@
                                         <svg class="note-icon-filled w-4 h-4 text-success hidden" fill="currentColor" viewBox="0 0 24 24">
                                             <path d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                                         </svg>
-                                    </button>
+                                    </span>
                                 </div>
+
                                 <p class="text-sm text-gray-500">
                                     {{ exercise.sets }} × {{ exercise.rep_range }}
                                     {% if exercise.rest_seconds %}
@@ -275,6 +292,49 @@
     </div>
 </div>
 
+
+<!-- Exercise Swap Modal -->
+<div id="swap-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/80" onclick="closeSwapModal()"></div>
+    <div class="absolute inset-4 flex items-center justify-center">
+        <div class="bg-dark-800 rounded-2xl overflow-hidden w-full max-w-md max-h-[80vh] flex flex-col">
+            <!-- Header -->
+            <div class="flex items-center justify-between p-4 border-b border-dark-600">
+                <div>
+                    <h3 class="font-medium text-gray-100">Swap Exercise</h3>
+                    <p id="swap-modal-subtitle" class="text-sm text-gray-500">Replace exercise</p>
+                </div>
+                <button onclick="closeSwapModal()" class="text-gray-500 hover:text-gray-300">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            
+            <!-- Cycle-wide toggle -->
+            <div class="px-4 py-3 border-b border-dark-700 bg-dark-750">
+                <label class="flex items-center justify-between cursor-pointer">
+                    <div>
+                        <span class="text-sm text-gray-200">Apply to entire cycle</span>
+                        <p class="text-xs text-gray-500">Updates all future workouts</p>
+                    </div>
+                    <div class="relative">
+                        <input type="checkbox" id="swap-permanent" class="sr-only peer">
+                        <div class="w-11 h-6 bg-dark-600 rounded-full peer peer-checked:bg-accent transition-colors"></div>
+                        <div class="absolute left-1 top-1 w-4 h-4 bg-gray-300 rounded-full peer-checked:translate-x-5 peer-checked:bg-white transition-transform"></div>
+                    </div>
+                </label>
+            </div>
+            
+            <!-- Exercise List -->
+            <div id="swap-exercise-list" class="flex-1 overflow-y-auto p-4 space-y-2">
+                <div class="text-center py-8 text-gray-500">Loading substitutes...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
 <!-- Video Modal -->
 <div id="video-modal" class="fixed inset-0 z-50 hidden">
     <div class="absolute inset-0 bg-black/80" onclick="closeVideoModal()"></div>
@@ -318,6 +378,7 @@
             {
                 id: "{{ exercise.id }}",
                 name: "{{ exercise.name }}",
+                muscleGroup: "{{ exercise.muscle_group }}",
                 targetSets: {{ exercise.sets }},
                 sets: Array({{ exercise.sets }}).fill(null).map(() => ({ weight: null, reps: null, completed: false }))
             }{% if not loop.last %},{% endif %}
@@ -343,9 +404,16 @@
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                // Merge saved data into state
+                // Merge saved state but preserve template-defined exercise fields
+                const savedExercises = parsed.exercises || [];
                 workoutState = { ...workoutState, ...parsed };
-                
+
+                // Restore template fields (muscleGroup, etc.) that might not be in saved state
+                workoutState.exercises = workoutState.exercises.map((ex, idx) => ({
+                    ...ex,
+                    muscleGroup: ex.muscleGroup || savedExercises[idx]?.muscleGroup || ''
+                }));
+
                 // Restore input values
                 workoutState.exercises.forEach((exercise, exIdx) => {
                     exercise.sets.forEach((set, setIdx) => {
@@ -405,6 +473,18 @@
                     btn.classList.add('bg-dark-600', 'border-dark-500', 'text-gray-500', 'hover:bg-accent', 'hover:border-accent', 'hover:text-dark-900');
                 }
             });
+        
+            // Disable swap button if any sets completed
+            const swapBtn = card.querySelector('.swap-btn');
+            if (swapBtn) {
+                const hasCompletedSets = exercise.sets.some(s => s.completed);
+                swapBtn.disabled = hasCompletedSets;
+                if (hasCompletedSets) {
+                    swapBtn.title = 'Cannot swap after completing sets';
+                } else {
+                    swapBtn.title = 'Swap exercise';
+                }
+            }
         });
         
         // Update progress
@@ -827,5 +907,161 @@
         const secs = seconds % 60;
         return `${mins}:${String(secs).padStart(2, '0')}`;
     }
+
+    // ============================================
+    // EXERCISE SWAP
+    // ============================================
+
+    let swapTargetIndex = null;
+
+    function openSwapModal(exerciseIndex) {
+        const exercise = workoutState.exercises[exerciseIndex];
+        
+        // Check if any sets completed - shouldn't happen since button is disabled, but double-check
+        const hasCompletedSets = exercise.sets.some(s => s.completed);
+        if (hasCompletedSets) {
+            alert('Cannot swap an exercise after completing sets.');
+            return;
+        }
+        
+        swapTargetIndex = exerciseIndex;
+        
+        // Update modal subtitle
+        document.getElementById('swap-modal-subtitle').textContent = `Replace ${exercise.name}`;
+        
+        // Reset toggle
+        document.getElementById('swap-permanent').checked = false;
+        
+        // Show modal
+        document.getElementById('swap-modal').classList.remove('hidden');
+        
+        // Load substitutes
+        loadSubstitutes(exercise);
+    }
+
+    function closeSwapModal() {
+        document.getElementById('swap-modal').classList.add('hidden');
+        swapTargetIndex = null;
+    }
+
+    async function loadSubstitutes(exercise) {
+        const listEl = document.getElementById('swap-exercise-list');
+        listEl.innerHTML = '<div class="text-center py-8 text-gray-500">Loading...</div>';
+        
+        try {
+            const response = await fetch(`/api/exercises/${encodeURIComponent(exercise.muscleGroup)}/substitutes?current=${exercise.id}`);
+            const substitutes = await response.json();
+            
+            if (!substitutes.length) {
+                listEl.innerHTML = '<div class="text-center py-8 text-gray-500">No alternatives found</div>';
+                return;
+            }
+            
+            listEl.innerHTML = substitutes.map(sub => `
+                <button onclick="selectSubstitute('${sub.id}', '${escapeHtml(sub.name)}', '${sub.muscle_group}')"
+                        class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left">
+                    <div>
+                        <p class="text-gray-100">${escapeHtml(sub.name)}</p>
+                        <p class="text-xs text-gray-500 capitalize">${sub.equipment || 'bodyweight'}${sub.is_compound ? ' · Compound' : ''}</p>
+                    </div>
+                    <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                    </svg>
+                </button>
+            `).join('');
+        } catch (err) {
+            console.error('Failed to load substitutes:', err);
+            listEl.innerHTML = '<div class="text-center py-8 text-red-400">Failed to load exercises</div>';
+        }
+    }
+
+    async function selectSubstitute(newExerciseId, newExerciseName, muscleGroup) {
+        const exercise = workoutState.exercises[swapTargetIndex];
+        const isPermanent = document.getElementById('swap-permanent').checked;
+        
+        if (isPermanent) {
+            // Call API to update cycle
+            try {
+                const response = await fetch('/api/cycle/exercise/swap-permanent', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        cycle_id: '{{ cycle.id if cycle else "" }}',
+                        old_exercise_id: exercise.id,
+                        new_exercise_id: newExerciseId,
+                        new_exercise_name: newExerciseName,
+                        muscle_group: muscleGroup,
+                        slot_id: '{{ slot_id if slot_id else "" }}'  // Pass if available
+                    })
+                });
+                
+                const result = await response.json();
+                if (!result.success) {
+                    alert('Failed to update cycle: ' + (result.error || 'Unknown error'));
+                    return;
+                }
+                
+                console.log(`Updated ${result.updated_count} future exercises`);
+            } catch (err) {
+                console.error('Failed to swap permanently:', err);
+                alert('Failed to update cycle. The swap will only apply to this workout.');
+            }
+        }
+        
+        // Update local state (for both one-time and permanent swaps)
+        const oldExercise = workoutState.exercises[swapTargetIndex];
+        workoutState.exercises[swapTargetIndex] = {
+            ...oldExercise,
+            id: newExerciseId,
+            name: newExerciseName,
+            muscleGroup: muscleGroup,
+            swappedFrom: oldExercise.id  // Track original for reference
+        };
+        
+        // Update the DOM
+        updateExerciseCard(swapTargetIndex);
+        
+        // Save state and close modal
+        saveState();
+        closeSwapModal();
+        
+        // Show confirmation
+        const msg = isPermanent ? 'Exercise swapped for entire cycle' : 'Exercise swapped for this workout';
+        showToast(msg);
+    }
+
+    function updateExerciseCard(index) {
+        const exercise = workoutState.exercises[index];
+        const card = document.querySelector(`[data-exercise-index="${index}"]`);
+        
+        if (!card) return;
+        
+        // Update exercise name
+        const nameEl = card.querySelector('h3');
+        if (nameEl) nameEl.textContent = exercise.name;
+        
+        // Update exercise ID for notes
+        card.dataset.exerciseId = exercise.id;
+        const notesBtn = card.querySelector('.notes-btn');
+        if (notesBtn) {
+            notesBtn.setAttribute('onclick', `event.stopPropagation(); ExerciseNotes.openModal('${exercise.id}', '${escapeHtml(exercise.name)}')`);
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function showToast(message) {
+        // Simple toast - you can enhance this
+        const toast = document.createElement('div');
+        toast.className = 'fixed bottom-24 left-1/2 -translate-x-1/2 bg-dark-700 text-gray-100 px-4 py-2 rounded-lg text-sm z-50 animate-fade-in';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
 </script>
 {% endblock %}

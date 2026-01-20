@@ -703,6 +703,48 @@ def get_exercise_substitutions(exercise_id: str, muscle_group: str,
 
 
 # ============================================
+# EXERCISE SWAP
+# ============================================
+
+def swap_exercise_in_cycle(cycle_id: str, old_exercise_id: str, new_exercise_id: str, 
+                           new_exercise_name: str, muscle_group: str, slot_id: str = None):
+    """
+    Swap an exercise for all future occurrences in a cycle.
+    If slot_id is provided, only swaps within that specific workout slot.
+    """
+    supabase = get_supabase_client()
+    
+    # Build the query to find matching cycle_exercises
+    query = supabase.table('cycle_exercises')\
+        .select('id')\
+        .eq('cycle_id', cycle_id)\
+        .eq('exercise_id', old_exercise_id)
+    
+    if slot_id:
+        query = query.eq('cycle_workout_slot_id', slot_id)
+    
+    # Get matching records
+    matches = query.execute()
+    
+    if not matches.data:
+        return {'updated': 0}
+    
+    # Update all matching records
+    ids_to_update = [m['id'] for m in matches.data]
+    
+    response = supabase.table('cycle_exercises')\
+        .update({
+            'exercise_id': new_exercise_id,
+            'exercise_name': new_exercise_name,
+            'muscle_group': muscle_group
+        })\
+        .in_('id', ids_to_update)\
+        .execute()
+    
+    return {'updated': len(response.data) if response.data else 0}
+
+
+# ============================================
 # PROFILE UPDATES
 # ============================================
 
