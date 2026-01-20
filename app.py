@@ -10,6 +10,7 @@ import db_notifications
 import db_social
 import workout_generator
 import notification_service
+import db_exercise_notes
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -2832,6 +2833,116 @@ def view_public_profile(profile_slug):
                          profile=profile,
                          shared_cycles=shared_cycles,
                          prs=prs)
+
+
+# ============================================
+# EXERCISE NOTES API
+# ============================================
+
+@app.route('/api/exercises/<exercise_id>/note', methods=['GET'])
+@login_required
+def api_get_exercise_note(exercise_id):
+    """Get the current user's note for an exercise."""
+    user = get_current_user()
+    
+    note = db_exercise_notes.get_user_exercise_note(user['id'], exercise_id)
+    
+    if note:
+        return jsonify({
+            'has_note': True,
+            'note_text': note['note_text'],
+            'updated_at': note['updated_at']
+        })
+    else:
+        return jsonify({
+            'has_note': False,
+            'note_text': '',
+            'updated_at': None
+        })
+
+
+@app.route('/api/exercises/<exercise_id>/note', methods=['POST', 'PUT'])
+@login_required
+def api_save_exercise_note(exercise_id):
+    """Create or update a note for an exercise."""
+    user = get_current_user()
+    data = request.json
+    
+    note_text = data.get('note_text', '').strip()
+    
+    # Validate length
+    if len(note_text) > 500:
+        return jsonify({'error': 'Note must be 500 characters or less'}), 400
+    
+    # Empty note = delete
+    if not note_text:
+        db_exercise_notes.delete_user_exercise_note(user['id'], exercise_id)
+        return jsonify({'success': True, 'deleted': True})
+    
+    result = db_exercise_notes.upsert_user_exercise_note(
+        user_id=user['id'],
+        exercise_id=exercise_id,
+        note_text=note_text
+    )
+    
+    if result:
+        return jsonify({
+            'success': True,
+            'note': result
+        })
+    else:
+        return jsonify({'error': 'Failed to save note'}), 500
+
+
+@app.route('/api/exercises/<exercise_id>/note', methods=['DELETE'])
+@login_required
+def api_delete_exercise_note(exercise_id):
+    """Delete a note for an exercise."""
+    user = get_current_user()
+    
+    success = db_exercise_notes.delete_user_exercise_note(user['id'], exercise_id)
+    
+    if success:
+        return jsonify({'success': True})
+    else:
+        return jsonify({'error': 'Failed to delete note'}), 500
+
+
+@app.route('/api/exercises/notes/bulk', methods=['POST'])
+@login_required
+def api_get_exercise_notes_bulk():
+    """
+    Get notes for multiple exercises at once.
+    Used when loading a workout to get all notes in one request.
+    
+    Request body: { "exercise_ids": ["uuid1", "uuid2", ...] }
+    Response: { "notes": { "uuid1": "note text", "uuid2": "note text" } }
+    """
+    user = get_current_user()
+    data = request.json
+    
+    exercise_ids = data.get('exercise_ids', [])
+    
+    if not exercise_ids:
+        return jsonify({'notes': {}})
+    
+    notes = db_exercise_notes.get_user_exercise_notes_bulk(user['id'], exercise_ids)
+    
+    return jsonify({'notes': notes})
+
+
+@app.route('/api/exercises/notes/all', methods=['GET'])
+@login_required
+def api_get_all_exercise_notes():
+    """
+    Get all exercise notes for the current user.
+    Useful for a notes management page or export.
+    """
+    user = get_current_user()
+    
+    notes = db_exercise_notes.get_all_user_notes(user['id'])
+    
+    return jsonify({'notes': notes})
 
 
 # ============================================
