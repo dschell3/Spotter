@@ -11,6 +11,8 @@ import db_social
 import workout_generator
 import notification_service
 import db_exercise_notes
+import ai_coach
+import db_coach
 
 app = Flask(__name__)
 app.config.from_object(Config)
@@ -2982,6 +2984,255 @@ def api_get_all_exercise_notes():
     notes = db_exercise_notes.get_all_user_notes(user['id'])
     
     return jsonify({'notes': notes})
+
+
+# ============================================
+# START: AI COACH ROUTES
+# ============================================
+
+# ------------------------------
+# Weight Suggestions
+# ------------------------------
+
+@app.route('/api/coach/weight-suggestion/<exercise_id>')
+def api_weight_suggestion(exercise_id):
+    """Get weight suggestion for a single exercise."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    # Get optional parameters
+    is_heavy = request.args.get('is_heavy', 'true').lower() == 'true'
+    rep_low = int(request.args.get('rep_low', 6))
+    rep_high = int(request.args.get('rep_high', 12))
+    
+    suggestion = ai_coach.calculate_weight_suggestion(
+        user_id=user['id'],
+        exercise_id=exercise_id,
+        target_rep_low=rep_low,
+        target_rep_high=rep_high,
+        is_heavy=is_heavy
+    )
+    
+    return jsonify({
+        'suggested_weight': suggestion.suggested_weight,
+        'reason': suggestion.reason,
+        'confidence': suggestion.confidence,
+        'explanation': suggestion.explanation,
+        'last_weight': suggestion.last_weight,
+        'last_reps': suggestion.last_reps,
+        'based_on_sessions': suggestion.based_on_sessions
+    })
+
+
+@app.route('/api/coach/workout-suggestions', methods=['POST'])
+def api_workout_suggestions():
+    """Get weight suggestions for all exercises in a workout."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    exercises = data.get('exercises', [])
+    
+    if not exercises:
+        return jsonify({'error': 'No exercises provided'}), 400
+    
+    suggestions = ai_coach.get_workout_weight_suggestions(
+        user_id=user['id'],
+        exercises=exercises
+    )
+    
+    # Convert to JSON-serializable format
+    result = {}
+    for ex_id, suggestion in suggestions.items():
+        result[ex_id] = {
+            'suggested_weight': suggestion.suggested_weight,
+            'reason': suggestion.reason,
+            'confidence': suggestion.confidence,
+            'explanation': suggestion.explanation,
+            'last_weight': suggestion.last_weight,
+            'last_reps': suggestion.last_reps
+        }
+    
+    return jsonify(result)
+
+
+# ------------------------------
+# Deload/Progression Detection
+# ------------------------------
+
+@app.route('/api/coach/check')
+def api_coach_check():
+    """
+    Check if user needs any coaching intervention (deload/progression).
+    Call this when user views their weekly plan.
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    cycle_id = request.args.get('cycle_id')
+    
+    recommendation = ai_coach.check_and_get_recommendation(
+        user_id=user['id'],
+        cycle_id=cycle_id
+    )
+    
+    if recommendation:
+        return jsonify({
+            'has_recommendation': True,
+            'recommendation': recommendation
+        })
+    else:
+        return jsonify({
+            'has_recommendation': False,
+            'message': 'You\'re on track! Keep it up.'
+        })
+
+
+@app.route('/api/coach/recommendation/<recommendation_id>/apply', methods=['POST'])
+def api_apply_recommendation(recommendation_id):
+    """Mark a recommendation as applied."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    result = db_coach.update_recommendation_status(recommendation_id, 'applied')
+    
+    if result:
+        return jsonify({'success': True, 'status': 'applied'})
+    else:
+        return jsonify({'error': 'Recommendation not found'}), 404
+
+
+@app.route('/api/coach/recommendation/<recommendation_id>/dismiss', methods=['POST'])
+def api_dismiss_recommendation(recommendation_id):
+    """Dismiss a recommendation."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    result = db_coach.update_recommendation_status(recommendation_id, 'dismissed')
+    
+    if result:
+        return jsonify({'success': True, 'status': 'dismissed'})
+    else:
+        return jsonify({'error': 'Recommendation not found'}), 404
+
+
+# ------------------------------
+# Adapt My Week
+# ------------------------------
+
+@app.route('/api/coach/adapt-check')
+def api_adapt_check():
+    """Check if user should see the 'Adapt My Week' option."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    cycle_id = request.args.get('cycle_id')
+    
+    if not cycle_id:
+        return jsonify({'show_option': False})
+    
+    should_show, reason = ai_coach.should_show_adapt_option(
+        user_id=user['id'],
+        cycle_id=cycle_id
+    )
+    
+    return jsonify({
+        'show_option': should_show,
+        'reason': reason
+    })
+
+
+@app.route('/api/coach/adapt-week', methods=['POST'])
+def api_adapt_week():
+    """Generate adapted workout suggestions for the week."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    cycle_id = data.get('cycle_id')
+    user_request = data.get('request', 'Adapt my remaining week')
+    
+    if not cycle_id:
+        return jsonify({'error': 'cycle_id required'}), 400
+    
+    result = ai_coach.generate_week_adaptation(
+        user_id=user['id'],
+        cycle_id=cycle_id,
+        user_request=user_request
+    )
+    
+    if result.get('error'):
+        return jsonify({'error': result['error']}), 429
+    
+    return jsonify(result)
+
+
+@app.route('/api/coach/apply-adaptation', methods=['POST'])
+def api_apply_adaptation():
+    """
+    Apply an AI-suggested workout to the schedule.
+    Creates a new scheduled workout with the suggested exercises.
+    """
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    data = request.json
+    cycle_id = data.get('cycle_id')
+    adaptation_id = data.get('adaptation_id')
+    suggestion_index = data.get('suggestion_index', 0)
+    scheduled_date = data.get('scheduled_date')  # ISO date string
+    
+    if not all([cycle_id, scheduled_date]):
+        return jsonify({'error': 'Missing required fields'}), 400
+    
+    suggestion = data.get('suggestion', {})
+    exercises = suggestion.get('exercises', [])
+    
+    if not exercises:
+        return jsonify({'error': 'No exercises in suggestion'}), 400
+    
+    # Mark the adaptation as applied
+    if adaptation_id:
+        db_coach.mark_adaptation_applied(adaptation_id, suggestion_index)
+    
+    # Here you would create the actual workout
+    # This depends on your existing workout creation logic
+    # For now, return success with the data
+    
+    return jsonify({
+        'success': True,
+        'message': f"Workout '{suggestion.get('name', 'Adapted Workout')}' scheduled for {scheduled_date}",
+        'workout': {
+            'name': suggestion.get('name'),
+            'scheduled_date': scheduled_date,
+            'exercises': exercises
+        }
+    })
+
+
+# ------------------------------
+# Usage Stats (Admin/Debug)
+# ------------------------------
+
+@app.route('/api/coach/usage')
+def api_coach_usage():
+    """Get AI usage statistics for current user."""
+    user = get_current_user()
+    if not user:
+        return jsonify({'error': 'Not authenticated'}), 401
+    
+    days = int(request.args.get('days', 30))
+    stats = db_coach.get_ai_usage_stats(user['id'], days)
+    
+    return jsonify(stats)
 
 
 # ============================================

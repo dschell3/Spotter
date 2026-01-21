@@ -103,6 +103,7 @@
     <!-- Main Content -->
     <main class="flex-1 px-4 py-4">
         <div class="max-w-6xl mx-auto">
+            <div id="coach-banner-container" class="mb-4"></div>
             {% if not cycle %}
             <!-- No Active Cycle -->
             <div class="text-center py-12">
@@ -245,6 +246,7 @@
                         <p class="text-sm text-gray-500">
                             {{ next_workout.scheduled_date }}
                         </p>
+                        <div id="adapt-button-container"></div>
                     </div>
                     <a href="{{ url_for('workout_from_schedule', scheduled_id=next_workout.id) }}" 
                        class="px-4 py-2 bg-accent text-dark-900 rounded-lg font-medium hover:bg-accent/90 transition-colors">
@@ -355,4 +357,18 @@
         }
     }
 </script>
+
+<!-- AI Coach initialization -->
+{% if cycle %}
+<script src="{{ url_for('static', filename='js/ai_coach.js') }}"></script>
+<script>
+    document.addEventListener('DOMContentLoaded', function() {
+        AICoach.init({
+            cycleId: '{{ cycle.id }}',
+            checkRecommendations: true,
+            checkAdaptOption: true
+        });
+    });
+</script>
+{% endif %}
 {% endblock %}
