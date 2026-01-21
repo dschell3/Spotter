@@ -31,6 +31,20 @@ Largely Vibe-coded with Claude Code.
 - Personal records (PR) tracking and celebrations
 - Export data to CSV or PDF
 
+### AI Coach
+- **Weight Suggestions** - Algorithmic recommendations based on recent performance
+  - Suggests weight increases when hitting top of rep range
+  - Advises maintaining or decreasing based on struggle patterns
+  - No AI cost (pure algorithm)
+- **Deload/Progression Detection** - Rule-based analysis with AI prescriptions
+  - Detects plateaus, volume drops, and completion rate changes
+  - Generates encouraging, actionable recommendations
+  - Triggers ~every 2-4 weeks when signals detected
+- **Adapt My Week** - AI-powered workout modifications
+  - Appears when you've missed scheduled workouts
+  - Suggests modified workouts prioritizing missed muscle groups
+  - Uses your existing exercise library
+
 ### Notifications
 - Email workout reminders (configurable hours before)
 - SMS notifications for important nudges
@@ -58,6 +72,7 @@ Largely Vibe-coded with Claude Code.
 | **Auth** | Supabase Auth + Google OAuth |
 | **Frontend** | Jinja2 + Tailwind CSS + Vanilla JS |
 | **Charts** | Chart.js |
+| **AI** | Anthropic Claude API |
 | **Email** | Resend |
 | **SMS** | Twilio |
 | **Hosting** | Render |
@@ -68,6 +83,7 @@ Largely Vibe-coded with Claude Code.
 ### Prerequisites
 - Python 3.9+
 - Supabase account
+- (Optional) Anthropic API key for AI coach features
 - (Optional) Resend account for emails
 - (Optional) Twilio account for SMS
 
@@ -110,6 +126,9 @@ SUPABASE_KEY=your-anon-key
 GOOGLE_CLIENT_ID=your-client-id
 GOOGLE_CLIENT_SECRET=your-client-secret
 
+# AI Coach (optional - features work with defaults if not set)
+ANTHROPIC_API_KEY=sk-ant-xxx
+
 # Notifications (optional)
 RESEND_API_KEY=re_xxx
 NOTIFICATION_FROM_EMAIL=notifications@yourdomain.com
@@ -130,6 +149,7 @@ Run these SQL scripts in Supabase SQL Editor (in order):
 5. `schema_progress.sql` - Progress tracking and PRs
 6. `schema_notifications.sql` - Notification preferences
 7. `schema_social.sql` - Sharing and social features
+8. `schema_ai_coach.sql` - AI coach recommendations and usage tracking
 
 ## Project Structure
 
@@ -143,6 +163,8 @@ workout-app/
 ├── db_notifications.py       # Notification queries
 ├── db_social.py              # Social feature queries
 ├── db_export.py              # CSV/PDF export
+├── db_coach.py               # AI coach database queries
+├── ai_coach.py               # AI coach logic and detection
 ├── notification_service.py   # Email/SMS sending
 ├── workout_generator.py      # Workout generation logic
 ├── requirements.txt          # Python dependencies
@@ -152,12 +174,14 @@ workout-app/
 ├── schema_progress.sql       # Progress schema
 ├── schema_notifications.sql  # Notifications schema
 ├── schema_social.sql         # Social features schema
+├── schema_ai_coach.sql       # AI coach schema
 ├── seed.sql                  # Exercise seed data
 │
 ├── static/
 │   ├── icons/                # PWA icons
 │   ├── js/
-│   │   └── sw.js             # Service worker
+│   │   ├── sw.js             # Service worker
+│   │   └── ai_coach.js       # AI coach frontend
 │   └── manifest.json         # PWA manifest
 │
 └── templates/
@@ -211,6 +235,17 @@ workout-app/
 - `GET /api/export/csv` - Export to CSV
 - `GET /api/export/pdf` - Export to PDF
 
+### AI Coach
+- `GET /api/coach/weight-suggestion/<exercise_id>` - Get weight suggestion for exercise
+- `POST /api/coach/workout-suggestions` - Batch weight suggestions for workout
+- `GET /api/coach/check` - Check for deload/progression recommendations
+- `POST /api/coach/recommendation/<id>/apply` - Apply a recommendation
+- `POST /api/coach/recommendation/<id>/dismiss` - Dismiss a recommendation
+- `GET /api/coach/adapt-check` - Check if adapt option should show
+- `POST /api/coach/adapt-week` - Generate adapted workout suggestions
+- `POST /api/coach/apply-adaptation` - Apply an adapted workout
+- `GET /api/coach/usage` - Get AI usage statistics
+
 ### Social
 - `POST /api/cycle/<id>/share` - Share a cycle
 - `POST /api/cycle/<id>/unshare` - Remove sharing
@@ -253,7 +288,7 @@ Set up at [cron-job.org](https://cron-job.org) (free):
 
 ## Development Roadmap
 
-### Completed 
+### Completed ✅
 
 - **Phase 1**: MVP - Workout execution, PWA, local storage
 - **Phase 2**: Database & Auth - Supabase, user accounts, cloud sync
@@ -267,14 +302,18 @@ Set up at [cron-job.org](https://cron-job.org) (free):
   - Option to make swap permanent for the current cycle
   - Quick access to substitutes filtered by same muscle group
   - Swap disabled after completing any sets for that exercise
+- **Phase 7**: AI Coach - Intelligent workout assistance
+  - Weight/rep suggestions based on recent performance (algorithmic, free)
+  - Deload/progression detection with AI-generated prescriptions
+  - "Adapt My Week" for missed workout recovery
+  - Usage tracking and daily limits for cost control
 
-### Future Ideas 
+### Future Ideas 💡
 
 - **AI "Snap to Identify"** - Photo-based equipment identification
   - Take a photo of a gym machine → AI identifies it
   - Shows relevant form cues and suggested exercises
 - Apple Watch / Wear OS companion app
-- AI-powered workout suggestions
 - Integration with fitness trackers
 - Multi-language support
 
