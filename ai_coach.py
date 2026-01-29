@@ -628,6 +628,20 @@ def generate_week_adaptation(user_id: str, cycle_id: str,
         for ex in exs:
             exercise_list.append(f"{ex['name']} ({muscle}, {ex['equipment']})")
     
+    # Get info about skipped/missed workouts
+    skipped_info = []
+    for w in week.get('skipped', []) + week.get('missed', []):
+        skipped_info.append(f"- {w.get('name', 'Workout')} (was scheduled for {w.get('scheduled_date', 'earlier')})")
+    
+    skipped_section = ""
+    if skipped_info:
+        skipped_section = f"""
+SKIPPED/MISSED WORKOUTS THAT NEED TO BE MADE UP:
+{chr(10).join(skipped_info)}
+
+IMPORTANT: The adapted workout MUST incorporate exercises from the skipped workouts above. 
+The primary goal is to ensure the user still hits the muscle groups they missed."""
+
     prompt = f"""You are a fitness coach helping adapt a training week.
 
 SITUATION:
@@ -636,8 +650,9 @@ SITUATION:
 - Days left in week: {week['days_remaining']}
 - Muscles NOT trained yet: {', '.join(muscles['untrained'][:6]) or 'None'}
 - Muscles already trained: {', '.join(muscles['trained'][:6]) or 'None'}
+{skipped_section}
 
-USER REQUEST: {user_request or 'Adapt my remaining week'}
+USER REQUEST: {user_request or 'Adapt my remaining week to make up for missed workouts'}
 
 AVAILABLE EXERCISES (use only these):
 {chr(10).join(exercise_list[:15])}

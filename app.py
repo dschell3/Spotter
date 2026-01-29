@@ -18,6 +18,26 @@ app = Flask(__name__)
 app.config.from_object(Config)
 
 # ============================================
+# CONSTANTS
+# ============================================
+
+SPLIT_DISPLAY_NAMES = {
+    'ppl_3day': 'PPL×2 (3 Day)',
+    'ppl_6day': 'PPL (6 Day)',
+    'upper_lower_4day': 'Upper/Lower (4 Day)',
+    'full_body_3day': 'Full Body (3 Day)',
+    'custom': 'Custom'
+}
+
+SPLIT_DESCRIPTIONS = {
+    'ppl_3day': 'Push/Pull/Legs hit twice per week in 3 training days',
+    'ppl_6day': 'Push/Pull/Legs split across 6 training days',
+    'upper_lower_4day': 'Upper and Lower body across 4 training days',
+    'full_body_3day': 'Full body workouts 3 days per week',
+    'custom': 'Custom training split'
+}
+
+# ============================================
 # AUTH HELPERS
 # ============================================
 
@@ -182,10 +202,6 @@ def auth_google():
         }
     })
     
-    # Store PKCE verifier in session for later exchange
-    if hasattr(supabase.auth, '_code_verifier'):
-        session['pkce_verifier'] = supabase.auth._code_verifier
-    
     # Redirect to Google's OAuth page
     return redirect(response.url)
 
@@ -261,23 +277,6 @@ def index():
                 return redirect(url_for('plan'))
         except Exception as e:
             print(f"Error checking active cycle: {e}")
-    
-    # Split type display names and descriptions
-    SPLIT_DISPLAY_NAMES = {
-        'ppl_3day': 'PPL×2 (3 Day)',
-        'ppl_6day': 'PPL (6 Day)',
-        'upper_lower_4day': 'Upper/Lower (4 Day)',
-        'full_body_3day': 'Full Body (3 Day)',
-        'custom': 'Custom'
-    }
-    
-    SPLIT_DESCRIPTIONS = {
-        'ppl_3day': 'Push/Pull/Legs hit twice per week in 3 training days',
-        'ppl_6day': 'Push/Pull/Legs split across 6 training days',
-        'upper_lower_4day': 'Upper and Lower body across 4 training days',
-        'full_body_3day': 'Full body workouts 3 days per week',
-        'custom': 'Custom training split'
-    }
     
     try:
         routine = db.get_routine('ppl_3day')
@@ -841,54 +840,82 @@ def workout_from_schedule(scheduled_id):
         cycle = db_cycles.get_cycle_by_id(cycle_id)
         rotation_weeks = cycle.get('rotation_weeks', 1) if cycle else 1
         
-        # Get exercises for this slot and week (with fallback to all-weeks exercises)
-        cycle_exercises = db_cycles.get_cycle_exercises_for_week(
-            cycle_id=cycle_id,
-            slot_id=slot_id,
-            week_number=week_number
-        )
+        # Check if this workout has adapted exercises (from AI coach)
+        adapted_exercises = scheduled_workout.get('adapted_exercises')
         
-        # Build the day data structure that workout.html expects
-        day = {
-            'id': slot_id,
-            'name': slot.get('workout_name', 'Workout'),
-            'day_number': week_number,
-            'focus': slot.get('is_heavy_focus', []),
-            'exercises': []
-        }
-        
-        # Determine if this is a heavy or light day for each exercise
-        heavy_focuses = slot.get('is_heavy_focus', [])
-        
-        for ce in cycle_exercises:
-            exercise_data = ce.get('exercises', {}) or {}
+        if adapted_exercises:
+            # Use adapted exercises from AI coach
+            day = {
+                'id': slot_id,
+                'name': scheduled_workout.get('adapted_workout_name') or slot.get('workout_name', 'Workout'),
+                'day_number': week_number,
+                'focus': [],
+                'exercises': []
+            }
             
-            # Determine if this exercise should use heavy or light settings
-            is_heavy = ce.get('is_heavy', False)
+            for ex in adapted_exercises:
+                day['exercises'].append({
+                    'id': ex.get('id', ''),
+                    'name': ex.get('name', 'Unknown'),
+                    'muscle_group': ex.get('muscle_group', ''),
+                    'equipment': ex.get('equipment', ''),
+                    'cues': ex.get('cues', []),
+                    'video_url': ex.get('video_url', ''),
+                    'is_compound': ex.get('is_compound', False),
+                    'sets': ex.get('sets', 3),
+                    'rep_range': ex.get('rep_range', '8-12'),
+                    'rest_seconds': ex.get('rest_seconds', 90),
+                    'is_heavy': ex.get('is_heavy', False)
+                })
+        else:
+            # Get exercises for this slot and week (with fallback to all-weeks exercises)
+            cycle_exercises = db_cycles.get_cycle_exercises_for_week(
+                cycle_id=cycle_id,
+                slot_id=slot_id,
+                week_number=week_number
+            )
             
-            # Use the appropriate sets/reps based on heavy vs light
-            if is_heavy:
-                sets = ce.get('sets_heavy', 4)
-                rep_range = ce.get('rep_range_heavy', '6-8')
-                rest_seconds = ce.get('rest_seconds_heavy', 180)
-            else:
-                sets = ce.get('sets_light', 3)
-                rep_range = ce.get('rep_range_light', '10-12')
-                rest_seconds = ce.get('rest_seconds_light', 90)
+            # Build the day data structure that workout.html expects
+            day = {
+                'id': slot_id,
+                'name': slot.get('workout_name', 'Workout'),
+                'day_number': week_number,
+                'focus': slot.get('is_heavy_focus', []),
+                'exercises': []
+            }
             
-            day['exercises'].append({
-                'id': ce.get('exercise_id'),
-                'name': ce.get('exercise_name', exercise_data.get('name', 'Unknown')),
-                'muscle_group': ce.get('muscle_group', exercise_data.get('muscle_group', '')),
-                'equipment': exercise_data.get('equipment', ''),
-                'cues': exercise_data.get('cues', []),
-                'video_url': exercise_data.get('video_url', ''),
-                'is_compound': exercise_data.get('is_compound', False),
-                'sets': sets,
-                'rep_range': rep_range,
-                'rest_seconds': rest_seconds,
-                'is_heavy': is_heavy
-            })
+            # Determine if this is a heavy or light day for each exercise
+            heavy_focuses = slot.get('is_heavy_focus', [])
+            
+            for ce in cycle_exercises:
+                exercise_data = ce.get('exercises', {}) or {}
+                
+                # Determine if this exercise should use heavy or light settings
+                is_heavy = ce.get('is_heavy', False)
+                
+                # Use the appropriate sets/reps based on heavy vs light
+                if is_heavy:
+                    sets = ce.get('sets_heavy', 4)
+                    rep_range = ce.get('rep_range_heavy', '6-8')
+                    rest_seconds = ce.get('rest_seconds_heavy', 180)
+                else:
+                    sets = ce.get('sets_light', 3)
+                    rep_range = ce.get('rep_range_light', '10-12')
+                    rest_seconds = ce.get('rest_seconds_light', 90)
+                
+                day['exercises'].append({
+                    'id': ce.get('exercise_id'),
+                    'name': ce.get('exercise_name', exercise_data.get('name', 'Unknown')),
+                    'muscle_group': ce.get('muscle_group', exercise_data.get('muscle_group', '')),
+                    'equipment': exercise_data.get('equipment', ''),
+                    'cues': exercise_data.get('cues', []),
+                    'video_url': exercise_data.get('video_url', ''),
+                    'is_compound': exercise_data.get('is_compound', False),
+                    'sets': sets,
+                    'rep_range': rep_range,
+                    'rest_seconds': rest_seconds,
+                    'is_heavy': is_heavy
+                })
         
         # If no exercises found, show error
         if not day['exercises']:
@@ -1471,29 +1498,6 @@ def api_routine(routine_id):
         if routine:
             return jsonify(routine)
         return jsonify({'error': 'Routine not found'}), 404
-
-
-@app.route('/api/debug/cycles')
-def api_debug_cycles():
-    """Debug endpoint to check cycles table."""
-    user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not logged in', 'user': None})
-    
-    try:
-        supabase = db.get_supabase_client()
-        all_cycles = supabase.table('cycles').select('*').eq('user_id', user['id']).execute()
-        active = db_cycles.get_active_cycle(user['id'])
-        
-        return jsonify({
-            'user_id': user['id'],
-            'all_cycles': all_cycles.data,
-            'active_cycle': active,
-            'cycle_count': len(all_cycles.data) if all_cycles.data else 0
-        })
-    except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()})
 
 
 @app.route('/api/schedule/preview')
@@ -3178,7 +3182,7 @@ def api_adapt_week():
 def api_apply_adaptation():
     """
     Apply an AI-suggested workout to the schedule.
-    Creates a new scheduled workout with the suggested exercises.
+    Replaces existing workout for that date and marks missed workouts as skipped.
     """
     user = get_current_user()
     if not user:
@@ -3195,28 +3199,73 @@ def api_apply_adaptation():
     
     suggestion = data.get('suggestion', {})
     exercises = suggestion.get('exercises', [])
+    workout_name = suggestion.get('name', 'Adapted Workout')
     
     if not exercises:
         return jsonify({'error': 'No exercises in suggestion'}), 400
     
-    # Mark the adaptation as applied
-    if adaptation_id:
-        db_coach.mark_adaptation_applied(adaptation_id, suggestion_index)
+    try:
+        supabase = db.get_supabase_client()
+        today = date.today()
+        
+        # 1. Mark any past scheduled (not completed) workouts as skipped
+        supabase.table('scheduled_workouts')\
+            .update({'status': 'skipped', 'notes': 'Auto-skipped by week adaptation'})\
+            .eq('user_id', user['id'])\
+            .eq('cycle_id', cycle_id)\
+            .eq('status', 'scheduled')\
+            .lt('scheduled_date', today.isoformat())\
+            .execute()
+        
+        # 2. Check if there's an existing scheduled workout for this date
+        existing = supabase.table('scheduled_workouts')\
+            .select('id')\
+            .eq('user_id', user['id'])\
+            .eq('cycle_id', cycle_id)\
+            .eq('scheduled_date', scheduled_date)\
+            .execute()
+        
+        if existing.data:
+            # Update existing workout with adapted exercises
+            supabase.table('scheduled_workouts')\
+                .update({
+                    'adapted_workout_name': workout_name,
+                    'adapted_exercises': exercises,
+                    'updated_at': datetime.utcnow().isoformat()
+                })\
+                .eq('id', existing.data[0]['id'])\
+                .execute()
+            scheduled_id = existing.data[0]['id']
+        else:
+            # Create new scheduled workout for this date
+            result = supabase.table('scheduled_workouts').insert({
+                'user_id': user['id'],
+                'cycle_id': cycle_id,
+                'scheduled_date': scheduled_date,
+                'workout_name': workout_name,
+                'adapted_workout_name': workout_name,
+                'adapted_exercises': exercises,
+                'status': 'scheduled'
+            }).execute()
+            scheduled_id = result.data[0]['id'] if result.data else None
+        
+        # 3. Mark the adaptation as applied
+        if adaptation_id:
+            db_coach.mark_adaptation_applied(adaptation_id, suggestion_index)
+        
+        return jsonify({
+            'success': True,
+            'message': f"Workout '{workout_name}' scheduled for {scheduled_date}",
+            'scheduled_id': scheduled_id,
+            'skipped_missed': True
+        })
+        
+    except Exception as e:
+        print(f"Apply adaptation error: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
     
-    # Here you would create the actual workout
-    # This depends on your existing workout creation logic
-    # For now, return success with the data
-    
-    return jsonify({
-        'success': True,
-        'message': f"Workout '{suggestion.get('name', 'Adapted Workout')}' scheduled for {scheduled_date}",
-        'workout': {
-            'name': suggestion.get('name'),
-            'scheduled_date': scheduled_date,
-            'exercises': exercises
-        }
-    })
-
 
 # ------------------------------
 # Usage Stats (Admin/Debug)

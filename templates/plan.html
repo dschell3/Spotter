@@ -176,7 +176,7 @@
                                  
                                 <!-- Workout Name -->
                                 <h4 class="font-medium text-gray-100 text-sm leading-tight mb-2">
-                                    {{ workout.cycle_workout_slots.workout_name if workout.cycle_workout_slots else 'Workout' }}
+                                    {{ workout.adapted_workout_name or (workout.cycle_workout_slots.workout_name if workout.cycle_workout_slots else 'Workout') }}
                                 </h4>
                                 
                                 <!-- Spacer to push actions to bottom -->
@@ -241,7 +241,7 @@
                     <div>
                         <p class="text-xs text-accent uppercase tracking-wide mb-1">Up Next</p>
                         <h4 class="font-semibold text-gray-100">
-                            {{ next_workout.cycle_workout_slots.workout_name if next_workout.cycle_workout_slots else 'Workout' }}
+                            {{ next_workout.adapted_workout_name or (next_workout.cycle_workout_slots.workout_name if next_workout.cycle_workout_slots else 'Workout') }}
                         </h4>
                         <p class="text-sm text-gray-500">
                             {{ next_workout.scheduled_date }}
