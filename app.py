@@ -1,7 +1,12 @@
 from flask import Flask, render_template, jsonify, request, redirect, url_for, session, flash, make_response
 from functools import wraps
+from werkzeug.middleware.proxy_fix import ProxyFix
+from flask_wtf import CSRFProtect
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from config import Config
 from datetime import date, datetime, timedelta
+import logging
 import db
 import db_cycles
 import db_progress
@@ -14,8 +19,23 @@ import db_exercise_notes
 import ai_coach
 import db_coach
 
+# Send app logs to stdout so they reach Render's log stream.
+logging.basicConfig(level=logging.INFO)
+
 app = Flask(__name__)
 app.config.from_object(Config)
+
+# Behind Render's proxy: trust one layer of X-Forwarded-* so Flask sees the real
+# client IP (rate limiting) and https scheme (Secure session cookies).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
+
+# CSRF protection for all state-changing form/JSON requests.
+csrf = CSRFProtect(app)
+
+# Rate limiting. In-memory storage is per-worker and resets on deploy — acceptable
+# for this stage. Upgrade path: point storage_uri at a Redis instance.
+limiter = Limiter(get_remote_address, app=app,
+                  storage_uri='memory://', default_limits=[])
 
 # ============================================
 # CONSTANTS
@@ -52,6 +72,16 @@ def login_required(f):
     return decorated_function
 
 
+def api_login_required(f):
+    """401 JSON for API routes (login_required redirects, which breaks fetch calls)."""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if 'user' not in session:
+            return jsonify({'error': 'Not authenticated'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 def get_current_user():
     """Get the current logged-in user from session."""
     return session.get('user')
@@ -62,34 +92,36 @@ def get_current_user():
 # ============================================
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit('5 per minute; 25 per hour', methods=['POST'])
 def login():
     """Login page and handler."""
     if 'user' in session:
         return redirect(url_for('index'))
-        
+
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
-        
+
         if not email or not password:
             flash('Email and password are required.', 'error')
             return render_template('auth/login.html')
-        
+
         try:
             supabase = db.get_supabase_client()
             response = supabase.auth.sign_in_with_password({
                 'email': email,
                 'password': password
             })
-            
+
             # Store user info in session
+            session.permanent = True
             session['user'] = {
                 'id': response.user.id,
                 'email': response.user.email,
                 'access_token': response.session.access_token,
                 'display_name': email.split('@')[0]  # Default display name
             }
-            
+
             # Try to get profile, but don't fail if it doesn't exist
             try:
                 profile = db.get_user_profile(response.user.id)
@@ -97,54 +129,57 @@ def login():
                     session['user']['display_name'] = profile['display_name']
             except Exception as e:
                 print(f"Profile fetch error (non-fatal): {e}")
-            
+
             flash('Welcome back!', 'success')
             return redirect(url_for('index'))
-            
+
         except Exception as e:
             error_msg = str(e)
             if 'Invalid login credentials' in error_msg:
                 flash('Invalid email or password.', 'error')
             else:
-                flash(f'Login failed: {error_msg}', 'error')
+                app.logger.exception('Login failed')
+                flash('Login failed. Please try again.', 'error')
             return render_template('auth/login.html')
-    
+
     return render_template('auth/login.html', config=app.config)
 
 
 @app.route('/signup', methods=['GET', 'POST'])
+@limiter.limit('5 per minute; 25 per hour', methods=['POST'])
 def signup():
     """Signup page and handler."""
     if 'user' in session:
         return redirect(url_for('index'))
-        
+
     if request.method == 'POST':
         email = request.form.get('email')
         password = request.form.get('password')
         confirm_password = request.form.get('confirm_password')
-        
+
         if not email or not password:
             flash('Email and password are required.', 'error')
             return render_template('auth/signup.html')
-        
+
         if password != confirm_password:
             flash('Passwords do not match.', 'error')
             return render_template('auth/signup.html')
-        
-        if len(password) < 6:
-            flash('Password must be at least 6 characters.', 'error')
+
+        if len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
             return render_template('auth/signup.html')
-        
+
         try:
             supabase = db.get_supabase_client()
             response = supabase.auth.sign_up({
                 'email': email,
                 'password': password
             })
-            
+
             if response.user:
                 # Auto-login after signup if session exists
                 if response.session:
+                    session.permanent = True
                     session['user'] = {
                         'id': response.user.id,
                         'email': response.user.email,
@@ -156,15 +191,16 @@ def signup():
                 else:
                     flash('Please check your email to confirm your account.', 'info')
                     return redirect(url_for('login'))
-                
+
         except Exception as e:
             error_msg = str(e)
             if 'already registered' in error_msg.lower():
                 flash('This email is already registered. Try logging in.', 'error')
             else:
-                flash(f'Signup failed: {error_msg}', 'error')
+                app.logger.exception('Signup failed')
+                flash('Signup failed. Please try again.', 'error')
             return render_template('auth/signup.html')
-    
+
     return render_template('auth/signup.html')
 
 
@@ -212,30 +248,40 @@ def auth_google_callback():
     return render_template('auth/google_callback.html', config=app.config)
 
 
-@app.route('/auth/google/complete')
+@app.route('/auth/google/complete', methods=['POST'])
 def auth_google_complete():
-    """Complete Google OAuth with tokens from client-side."""
-    access_token = request.args.get('access_token')
-    refresh_token = request.args.get('refresh_token')
-    
+    """Complete Google OAuth with tokens POSTed from the client.
+
+    Tokens arrive in the JSON body (never the URL) so they don't leak into
+    request logs or browser history. The access token is verified server-side
+    and the session is built exclusively from the verified response — no user
+    fields sent by the client are trusted.
+    """
+    data = request.get_json(silent=True) or {}
+    access_token = data.get('access_token')
+    refresh_token = data.get('refresh_token')
+
     if not access_token:
-        flash('Google sign-in failed. Please try again.', 'error')
-        return redirect(url_for('login'))
-    
+        return jsonify({'error': 'Missing access token'}), 400
+
     try:
         supabase = db.get_supabase_client()
         response = supabase.auth.get_user(access_token)
         user = response.user
-        
+
         if user:
+            display_name = (user.user_metadata.get('full_name')
+                            or user.user_metadata.get('name')
+                            or user.email.split('@')[0])
+            session.permanent = True
             session['user'] = {
                 'id': user.id,
                 'email': user.email,
                 'access_token': access_token,
                 'refresh_token': refresh_token,
-                'display_name': user.user_metadata.get('full_name') or user.user_metadata.get('name') or user.email.split('@')[0]
+                'display_name': display_name
             }
-            
+
             try:
                 profile = db.get_user_profile(user.id)
                 if not profile:
@@ -248,17 +294,14 @@ def auth_google_complete():
                     session['user']['display_name'] = profile['display_name']
             except Exception as e:
                 print(f"Profile setup error (non-fatal): {e}")
-            
-            flash('Welcome! Signed in with Google.', 'success')
-            return redirect(url_for('index'))
+
+            return jsonify({'success': True})
         else:
-            flash('Could not get user info.', 'error')
-            return redirect(url_for('login'))
-            
+            return jsonify({'error': 'Could not verify Google sign-in'}), 401
+
     except Exception as e:
-        print(f"Google complete error: {e}")
-        flash('Google sign-in failed. Please try again.', 'error')
-        return redirect(url_for('login'))
+        app.logger.exception('Google complete error')
+        return jsonify({'error': 'Google sign-in failed'}), 401
 
 # ============================================
 # MAIN ROUTES
@@ -360,8 +403,7 @@ def history():
     user = get_current_user()
     
     workouts = db.get_user_workouts(
-        user['id'], 
-        user.get('access_token', '')
+        user['id']
     )
     
     return render_template('history.html', workouts=workouts, user=user)
@@ -537,7 +579,7 @@ def calculate_weekly_completion_rates(user_id: str, weeks: int = 12):
 
 
 @app.route('/api/progress/strength')
-@login_required
+@api_login_required
 def api_progress_strength():
     """Get strength progress data for selected exercises."""
     user = get_current_user()
@@ -557,7 +599,7 @@ def api_progress_strength():
 
 
 @app.route('/api/progress/volume')
-@login_required
+@api_login_required
 def api_progress_volume():
     """Get volume data for charts."""
     user = get_current_user()
@@ -569,7 +611,7 @@ def api_progress_volume():
 
 
 @app.route('/api/progress/consistency')
-@login_required
+@api_login_required
 def api_progress_consistency():
     """Get consistency stats."""
     user = get_current_user()
@@ -583,7 +625,7 @@ def api_progress_consistency():
 
 
 @app.route('/api/progress/check-pr', methods=['POST'])
-@login_required
+@api_login_required
 def api_check_pr():
     """Check if a lift is a new PR and record it."""
     user = get_current_user()
@@ -737,10 +779,10 @@ def cycle_view(cycle_id):
     user = get_current_user()
     
     cycle = db_cycles.get_cycle_by_id(cycle_id)
-    if not cycle:
+    if not cycle or cycle.get('user_id') != user['id']:
         flash('Cycle not found.', 'error')
         return redirect(url_for('plan'))
-    
+
     # Get workout slots and exercises
     workout_slots = db_cycles.get_cycle_workout_slots(cycle_id)
     exercises = db_cycles.get_cycle_exercises(cycle_id)
@@ -823,10 +865,10 @@ def workout_from_schedule(scheduled_id):
             .execute()
         
         scheduled_workout = scheduled_response.data
-        if not scheduled_workout:
+        if not scheduled_workout or scheduled_workout.get('user_id') != user['id']:
             flash('Scheduled workout not found.', 'error')
             return redirect(url_for('plan'))
-        
+
         slot = scheduled_workout.get('cycle_workout_slots')
         if not slot:
             flash('Workout slot not found.', 'error')
@@ -934,10 +976,8 @@ def workout_from_schedule(scheduled_id):
                              user=user)
         
     except Exception as e:
-        print(f"Error loading scheduled workout: {e}")
-        import traceback
-        traceback.print_exc()
-        flash(f'Error loading workout: {str(e)}', 'error')
+        app.logger.exception('Error loading scheduled workout')
+        flash('Error loading workout. Please try again.', 'error')
         return redirect(url_for('plan'))
 
 
@@ -946,11 +986,10 @@ def workout_from_schedule(scheduled_id):
 # ============================================
 
 @app.route('/api/workout/start', methods=['POST'])
+@api_login_required
 def api_start_workout():
     """Start a new workout session."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     template_id = data.get('template_id')
@@ -959,8 +998,7 @@ def api_start_workout():
     workout = db.create_user_workout(
         user['id'],
         template_id,
-        template_name,
-        user.get('access_token', '')
+        template_name
     )
     
     if workout:
@@ -969,26 +1007,27 @@ def api_start_workout():
 
 
 @app.route('/api/workout/<workout_id>/complete', methods=['POST'])
+@api_login_required
 def api_complete_workout(workout_id):
     """Complete a workout and save all sets."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
+
+    # Ownership check: only the workout's owner may save sets to it.
+    if not db.get_owned_row('user_workouts', workout_id, user['id']):
+        return jsonify({'error': 'Workout not found'}), 404
+
     data = request.json
     sets_data = data.get('sets', [])
-    
+
     # Save sets
     db.save_workout_sets(
         workout_id,
-        sets_data,
-        user.get('access_token', '')
+        sets_data
     )
     
     # Mark workout complete
     workout = db.complete_user_workout(
-        workout_id,
-        user.get('access_token', '')
+        workout_id
     )
     
     if workout:
@@ -997,20 +1036,23 @@ def api_complete_workout(workout_id):
 
 
 @app.route('/api/workout/save-cycle', methods=['POST'])
-@login_required
+@api_login_required
 def api_save_cycle_workout():
     """Save a cycle-based workout and mark scheduled workout as completed."""
     user = get_current_user()
     
     data = request.json
     scheduled_id = data.get('scheduled_id')
-    
+
+    # Ownership check: don't let a user complete someone else's scheduled workout.
+    if scheduled_id and not db.get_owned_row('scheduled_workouts', scheduled_id, user['id']):
+        return jsonify({'error': 'Scheduled workout not found'}), 404
+
     # Create the workout record
     workout = db.create_user_workout(
         user['id'],
         None,  # template_id - not used for cycle-based workouts
-        data.get('workout_name', 'Workout'),
-        user.get('access_token', '')
+        data.get('workout_name', 'Workout')
     )
     
     if not workout:
@@ -1032,14 +1074,12 @@ def api_save_cycle_workout():
     
     db.save_workout_sets(
         workout['id'],
-        sets_data,
-        user.get('access_token', '')
+        sets_data
     )
     
     # Mark workout complete
     db.complete_user_workout(
-        workout['id'],
-        user.get('access_token', '')
+        workout['id']
     )
     
     # Mark the scheduled workout as completed
@@ -1050,11 +1090,10 @@ def api_save_cycle_workout():
 
 
 @app.route('/api/workout/save-local', methods=['POST'])
+@api_login_required
 def api_save_local_workout():
     """Save a workout that was stored locally (for logged-in users syncing)."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     
@@ -1062,8 +1101,7 @@ def api_save_local_workout():
     workout = db.create_user_workout(
         user['id'],
         data.get('template_id'),
-        data.get('template_name', 'Workout'),
-        user.get('access_token', '')
+        data.get('template_name', 'Workout')
     )
     
     if not workout:
@@ -1085,14 +1123,12 @@ def api_save_local_workout():
     
     db.save_workout_sets(
         workout['id'],
-        sets_data,
-        user.get('access_token', '')
+        sets_data
     )
     
     # Mark complete
     db.complete_user_workout(
-        workout['id'],
-        user.get('access_token', '')
+        workout['id']
     )
     
     return jsonify({'success': True, 'workout_id': workout['id']})
@@ -1116,7 +1152,8 @@ def api_exercises_by_muscle(muscle_group):
         exercises = db.get_exercises_by_muscle_group(muscle_group)
         return jsonify(exercises)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/exercises/<muscle_group>/substitutes')
@@ -1133,15 +1170,15 @@ def api_exercise_substitutes(muscle_group):
         )
         return jsonify(substitutes)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/exercises/add', methods=['POST'])
+@api_login_required
 def api_add_exercise():
     """Add a new exercise to the library."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     name = data.get('name', '').strip()
@@ -1167,16 +1204,15 @@ def api_add_exercise():
         return jsonify({'error': 'Failed to add exercise'}), 500
     except Exception as e:
         print(f"Add exercise error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
     
 
 @app.route('/api/cycle/exercise/swap-permanent', methods=['POST'])
-@login_required
+@api_login_required
 def swap_exercise_permanent():
     """Swap an exercise for all future occurrences in the current cycle."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Unauthorized'}), 401
     
     data = request.json
     cycle_id = data.get('cycle_id')
@@ -1210,11 +1246,10 @@ def swap_exercise_permanent():
 
 
 @app.route('/api/exercises/generate-cues', methods=['POST'])
+@api_login_required
 def api_generate_cues():
     """Generate form cues for an exercise using AI."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     name = data.get('name', '').strip()
@@ -1286,10 +1321,11 @@ Focus on:
             "Control the movement",
             "Breathe steadily"
         ]
-        return jsonify({'cues': default_cues, 'generated': False, 'error': str(e)})
+        return jsonify({'cues': default_cues, 'generated': False})
 
 
 @app.route('/api/exercises/<exercise_id>/suggest-video')
+@api_login_required
 def api_suggest_video(exercise_id):
     """Search YouTube for a short demo video for an exercise."""
     exercise_name = request.args.get('name', '')
@@ -1414,7 +1450,7 @@ def api_suggest_video(exercise_id):
         print(f"YouTube search error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e), 'video': None}), 500
+        return jsonify({'error': 'Something went wrong', 'video': None}), 500
 
 
 def parse_youtube_duration(duration: str) -> int:
@@ -1431,11 +1467,10 @@ def parse_youtube_duration(duration: str) -> int:
 
 
 @app.route('/api/exercises/<exercise_id>/save-video', methods=['POST'])
+@api_login_required
 def api_save_video(exercise_id):
     """Save approved video URL to an exercise."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     video_url = data.get('video_url', '').strip()
@@ -1457,15 +1492,15 @@ def api_save_video(exercise_id):
         
     except Exception as e:
         print(f"Save video error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/exercises/<exercise_id>/clear-video', methods=['POST'])
+@api_login_required
 def api_clear_video(exercise_id):
     """Clear video URL from an exercise."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         supabase = db.get_supabase_client()
@@ -1481,7 +1516,8 @@ def api_clear_video(exercise_id):
         
     except Exception as e:
         print(f"Clear video error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/routine/<routine_id>')
@@ -1518,11 +1554,12 @@ def api_schedule_preview():
         return jsonify(schedule)
     except Exception as e:
         print(f"Schedule preview error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/profile/preferred-days')
-@login_required
+@api_login_required
 def api_profile_preferred_days():
     """Get the user's preferred training days."""
     user = get_current_user()
@@ -1539,11 +1576,10 @@ def api_profile_preferred_days():
 # ============================================
 
 @app.route('/api/profile/settings', methods=['POST'])
+@api_login_required
 def api_profile_settings():
     """Update user profile training settings."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     print(f"Profile settings update request: {data}")
@@ -1573,10 +1609,8 @@ def api_profile_settings():
         return jsonify({'error': 'Failed to update settings - no result returned'}), 500
         
     except Exception as e:
-        import traceback
-        print(f"Profile update error: {e}")
-        print(f"Traceback: {traceback.format_exc()}")
-        return jsonify({'error': str(e), 'details': traceback.format_exc()}), 500
+        app.logger.exception('Profile update error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 # ============================================
@@ -1584,11 +1618,10 @@ def api_profile_settings():
 # ============================================
 
 @app.route('/api/cycle/create', methods=['POST'])
+@api_login_required
 def api_create_cycle():
     """Create a new training cycle with support for per-week exercises."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     
@@ -1714,22 +1747,21 @@ def api_create_cycle():
         print(f"Create cycle error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e), 'code': getattr(e, 'code', None)}), 500
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/cycle/<cycle_id>/activate', methods=['POST'])
+@api_login_required
 def api_activate_cycle(cycle_id):
     """Activate a cycle and generate schedule."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
-        # Get cycle details
-        cycle = db_cycles.get_cycle_by_id(cycle_id)
+        # Get cycle details (ownership enforced: must belong to this user)
+        cycle = db.get_owned_row('cycles', cycle_id, user['id'])
         if not cycle:
             return jsonify({'error': 'Cycle not found'}), 404
-        
+
         # Get workout slots
         slots = db_cycles.get_cycle_workout_slots(cycle_id)
         
@@ -1753,32 +1785,41 @@ def api_activate_cycle(cycle_id):
         
     except Exception as e:
         print(f"Activate cycle error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/cycle/<cycle_id>/complete', methods=['POST'])
+@api_login_required
 def api_complete_cycle(cycle_id):
     """Mark a cycle as completed."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
+
+    # Ownership check.
+    if not db.get_owned_row('cycles', cycle_id, user['id']):
+        return jsonify({'error': 'Cycle not found'}), 404
+
     try:
         result = db_cycles.complete_cycle(cycle_id)
         return jsonify({'success': True, 'cycle': result})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/cycle/<cycle_id>/delete', methods=['POST', 'DELETE'])
-@login_required
+@api_login_required
 def api_delete_cycle(cycle_id):
     """Delete a cycle and all associated data."""
     user = get_current_user()
-    
+
+    # Ownership check: never delete another user's cycle.
+    if not db.get_owned_row('cycles', cycle_id, user['id']):
+        return jsonify({'error': 'Cycle not found'}), 404
+
     try:
         supabase = db.get_supabase_client()
-        
+
         # Delete in order due to foreign keys
         supabase.table('scheduled_workouts').delete().eq('cycle_id', cycle_id).execute()
         supabase.table('cycle_exercises').delete().eq('cycle_id', cycle_id).execute()
@@ -1789,19 +1830,23 @@ def api_delete_cycle(cycle_id):
         
     except Exception as e:
         print(f"Delete cycle error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/schedule/<scheduled_id>/reschedule', methods=['POST'])
+@api_login_required
 def api_reschedule_workout(scheduled_id):
     """Reschedule a workout."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
+
+    # Ownership check.
+    if not db.get_owned_row('scheduled_workouts', scheduled_id, user['id']):
+        return jsonify({'error': 'Scheduled workout not found'}), 404
+
     data = request.json
     new_date = datetime.strptime(data['new_date'], '%Y-%m-%d').date()
-    
+
     try:
         # Check if workout is already completed
         workout = db_cycles.get_scheduled_workout_by_id(scheduled_id)
@@ -1811,15 +1856,15 @@ def api_reschedule_workout(scheduled_id):
         result = db_cycles.reschedule_workout(scheduled_id, new_date)
         return jsonify({'success': True, 'workout': result})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/debug/clean', methods=['POST'])
+@api_login_required
 def api_debug_clean():
     """Clean all cycle data for the current user."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         supabase = db.get_supabase_client()
@@ -1846,16 +1891,15 @@ def api_debug_clean():
         
         return jsonify({'success': True, 'deleted': deleted})
     except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+        app.logger.exception('Debug endpoint error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/debug/schedule')
+@api_login_required
 def api_debug_schedule():
     """Debug endpoint to check schedule data."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         cycle = db_cycles.get_active_cycle(user['id'])
@@ -1877,24 +1921,28 @@ def api_debug_schedule():
             'today': date.today().isoformat()
         })
     except Exception as e:
-        import traceback
-        return jsonify({'error': str(e), 'traceback': traceback.format_exc()}), 500
+        app.logger.exception('Debug endpoint error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/schedule/<scheduled_id>/skip', methods=['POST'])
+@api_login_required
 def api_skip_workout(scheduled_id):
     """Skip a scheduled workout."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
-    
+
+    # Ownership check.
+    if not db.get_owned_row('scheduled_workouts', scheduled_id, user['id']):
+        return jsonify({'error': 'Scheduled workout not found'}), 404
+
     data = request.json or {}
-    
+
     try:
         result = db_cycles.skip_scheduled_workout(scheduled_id, data.get('notes'))
         return jsonify({'success': True, 'workout': result})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 # ============================================
@@ -1985,27 +2033,24 @@ Required imports to add at top of app.py:
 # ============================================
 
 @app.route('/api/notifications/preferences', methods=['GET'])
-@login_required
+@api_login_required
 def api_get_notification_preferences():
     """Get current user's notification preferences."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         prefs = db_notifications.get_notification_preferences(user['id'])
         return jsonify({'preferences': prefs})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/notifications/preferences', methods=['POST'])
-@login_required
+@api_login_required
 def api_update_notification_preferences():
     """Update notification preferences."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     
@@ -2031,16 +2076,15 @@ def api_update_notification_preferences():
         return jsonify({'success': True, 'preferences': result})
     except Exception as e:
         print(f"Notification preferences update error: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/notifications/phone', methods=['POST'])
-@login_required
+@api_login_required
 def api_update_phone():
     """Update phone number with confirmation step."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     phone_number = data.get('phone_number', '').strip()
@@ -2093,22 +2137,22 @@ def api_update_phone():
             'welcome_sms': welcome_sms_result
         })
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/notifications/history', methods=['GET'])
-@login_required
+@api_login_required
 def api_notification_history():
     """Get notification history for current user."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     try:
         history = db_notifications.get_notification_history(user['id'])
         return jsonify({'history': history})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 # ============================================
@@ -2147,10 +2191,6 @@ Required imports to add at top of app.py:
 import os
 from functools import wraps
 
-# Simple secret key for cron job authentication
-# Set this in your environment variables
-CRON_SECRET = os.environ.get('CRON_SECRET', 'change-me-in-production')
-
 
 def cron_auth_required(f):
     """
@@ -2160,7 +2200,7 @@ def cron_auth_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         secret = request.headers.get('X-Cron-Secret') or request.args.get('secret')
-        if secret != CRON_SECRET:
+        if secret != app.config['CRON_SECRET']:
             return jsonify({'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     return decorated
@@ -2171,6 +2211,7 @@ def cron_auth_required(f):
 # ============================================
 
 @app.route('/api/cron/notifications', methods=['GET', 'POST'])
+@csrf.exempt
 @cron_auth_required
 def cron_process_notifications():
     """
@@ -2215,6 +2256,7 @@ def cron_process_notifications():
 
 
 @app.route('/api/cron/workout-reminders', methods=['GET', 'POST'])
+@csrf.exempt
 @cron_auth_required
 def cron_workout_reminders():
     """Process only workout reminders."""
@@ -2222,10 +2264,12 @@ def cron_workout_reminders():
         results = process_workout_reminders()
         return jsonify(results)
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/cron/inactivity', methods=['GET', 'POST'])
+@csrf.exempt
 @cron_auth_required
 def cron_inactivity():
     """Process only inactivity nudges."""
@@ -2406,15 +2450,13 @@ def process_inactivity_nudges(days: int, nudge_type: str):
 # ============================================
 
 @app.route('/api/cron/test-email', methods=['POST'])
-@login_required
+@api_login_required
 def test_notification_email():
     """
     Send a test email to the current user.
     For development/testing only.
     """
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     profile = db.get_user_profile(user['id'])
     user_name = profile.get('display_name') if profile else user['email'].split('@')[0]
@@ -2450,15 +2492,13 @@ def test_notification_email():
 
 
 @app.route('/api/cron/test-sms', methods=['POST'])
-@login_required
+@api_login_required
 def test_notification_sms():
     """
     Send a test SMS to the current user's phone.
     For development/testing only.
     """
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     # Get user's phone number from notification preferences
     prefs = db_notifications.get_notification_preferences(user['id'])
@@ -2512,7 +2552,7 @@ Required imports to add at top of app.py:
 # ============================================
 
 @app.route('/api/cycle/<cycle_id>/share', methods=['POST'])
-@login_required
+@api_login_required
 def api_share_cycle(cycle_id):
     """Share a cycle, generating a unique link."""
     user = get_current_user()
@@ -2548,11 +2588,12 @@ def api_share_cycle(cycle_id):
             
     except Exception as e:
         print(f"Error sharing cycle: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/cycle/<cycle_id>/unshare', methods=['POST'])
-@login_required
+@api_login_required
 def api_unshare_cycle(cycle_id):
     """Remove a cycle from sharing."""
     user = get_current_user()
@@ -2561,11 +2602,12 @@ def api_unshare_cycle(cycle_id):
         db_social.unshare_cycle(user['id'], cycle_id)
         return jsonify({'success': True})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/cycle/<cycle_id>/share-settings', methods=['GET'])
-@login_required
+@api_login_required
 def api_get_share_settings(cycle_id):
     """Get current share settings for a cycle."""
     user = get_current_user()
@@ -2591,7 +2633,7 @@ def api_get_share_settings(cycle_id):
 
 
 @app.route('/api/my-shared-cycles', methods=['GET'])
-@login_required
+@api_login_required
 def api_my_shared_cycles():
     """Get all cycles shared by current user."""
     user = get_current_user()
@@ -2605,7 +2647,8 @@ def api_my_shared_cycles():
         
         return jsonify({'cycles': cycles})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 # ============================================
@@ -2642,7 +2685,8 @@ def api_library_cycles():
         
         return jsonify({'cycles': cycles})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/api/library/templates', methods=['GET'])
@@ -2663,7 +2707,8 @@ def api_library_templates():
         
         return jsonify({'templates': templates})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 # ============================================
@@ -2671,7 +2716,7 @@ def api_library_templates():
 # ============================================
 
 @app.route('/api/shared/cycle/<share_code>/copy', methods=['POST'])
-@login_required
+@api_login_required
 def api_copy_shared_cycle(share_code):
     """Copy a shared cycle to user's account."""
     user = get_current_user()
@@ -2694,7 +2739,8 @@ def api_copy_shared_cycle(share_code):
         })
     except Exception as e:
         print(f"Error copying cycle: {e}")
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 # ============================================
@@ -2744,7 +2790,7 @@ def view_shared_cycle(share_code):
 # ============================================
 
 @app.route('/api/share/achievement', methods=['POST'])
-@login_required
+@api_login_required
 def api_share_achievement():
     """Create a shareable achievement."""
     user = get_current_user()
@@ -2776,7 +2822,8 @@ def api_share_achievement():
             return jsonify({'error': 'Failed to create share'}), 500
             
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/shared/pr/<share_code>')
@@ -2826,7 +2873,7 @@ def cycle_library():
 # ============================================
 
 @app.route('/api/profile/public', methods=['POST'])
-@login_required
+@api_login_required
 def api_update_public_profile():
     """Update public profile settings."""
     user = get_current_user()
@@ -2847,7 +2894,8 @@ def api_update_public_profile():
         result = db_social.update_public_profile(user['id'], data)
         return jsonify({'success': True, 'profile': result})
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
 
 
 @app.route('/u/<profile_slug>')
@@ -2885,7 +2933,7 @@ def view_public_profile(profile_slug):
 # ============================================
 
 @app.route('/api/exercises/<exercise_id>/note', methods=['GET'])
-@login_required
+@api_login_required
 def api_get_exercise_note(exercise_id):
     """Get the current user's note for an exercise."""
     user = get_current_user()
@@ -2907,7 +2955,7 @@ def api_get_exercise_note(exercise_id):
 
 
 @app.route('/api/exercises/<exercise_id>/note', methods=['POST', 'PUT'])
-@login_required
+@api_login_required
 def api_save_exercise_note(exercise_id):
     """Create or update a note for an exercise."""
     user = get_current_user()
@@ -2940,7 +2988,7 @@ def api_save_exercise_note(exercise_id):
 
 
 @app.route('/api/exercises/<exercise_id>/note', methods=['DELETE'])
-@login_required
+@api_login_required
 def api_delete_exercise_note(exercise_id):
     """Delete a note for an exercise."""
     user = get_current_user()
@@ -2954,7 +3002,7 @@ def api_delete_exercise_note(exercise_id):
 
 
 @app.route('/api/exercises/notes/bulk', methods=['POST'])
-@login_required
+@api_login_required
 def api_get_exercise_notes_bulk():
     """
     Get notes for multiple exercises at once.
@@ -2977,7 +3025,7 @@ def api_get_exercise_notes_bulk():
 
 
 @app.route('/api/exercises/notes/all', methods=['GET'])
-@login_required
+@api_login_required
 def api_get_all_exercise_notes():
     """
     Get all exercise notes for the current user.
@@ -2999,11 +3047,10 @@ def api_get_all_exercise_notes():
 # ------------------------------
 
 @app.route('/api/coach/weight-suggestion/<exercise_id>')
+@api_login_required
 def api_weight_suggestion(exercise_id):
     """Get weight suggestion for a single exercise."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     # Get optional parameters
     is_heavy = request.args.get('is_heavy', 'true').lower() == 'true'
@@ -3030,11 +3077,10 @@ def api_weight_suggestion(exercise_id):
 
 
 @app.route('/api/coach/workout-suggestions', methods=['POST'])
+@api_login_required
 def api_workout_suggestions():
     """Get weight suggestions for all exercises in a workout."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     exercises = data.get('exercises', [])
@@ -3067,14 +3113,13 @@ def api_workout_suggestions():
 # ------------------------------
 
 @app.route('/api/coach/check')
+@api_login_required
 def api_coach_check():
     """
     Check if user needs any coaching intervention (deload/progression).
     Call this when user views their weekly plan.
     """
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     cycle_id = request.args.get('cycle_id')
     
@@ -3096,13 +3141,12 @@ def api_coach_check():
 
 
 @app.route('/api/coach/recommendation/<recommendation_id>/apply', methods=['POST'])
+@api_login_required
 def api_apply_recommendation(recommendation_id):
     """Mark a recommendation as applied."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
-    result = db_coach.update_recommendation_status(recommendation_id, 'applied')
+    result = db_coach.update_recommendation_status(recommendation_id, 'applied', user['id'])
     
     if result:
         return jsonify({'success': True, 'status': 'applied'})
@@ -3111,13 +3155,12 @@ def api_apply_recommendation(recommendation_id):
 
 
 @app.route('/api/coach/recommendation/<recommendation_id>/dismiss', methods=['POST'])
+@api_login_required
 def api_dismiss_recommendation(recommendation_id):
     """Dismiss a recommendation."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
-    result = db_coach.update_recommendation_status(recommendation_id, 'dismissed')
+    result = db_coach.update_recommendation_status(recommendation_id, 'dismissed', user['id'])
     
     if result:
         return jsonify({'success': True, 'status': 'dismissed'})
@@ -3130,11 +3173,10 @@ def api_dismiss_recommendation(recommendation_id):
 # ------------------------------
 
 @app.route('/api/coach/adapt-check')
+@api_login_required
 def api_adapt_check():
     """Check if user should see the 'Adapt My Week' option."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     cycle_id = request.args.get('cycle_id')
     
@@ -3153,11 +3195,10 @@ def api_adapt_check():
 
 
 @app.route('/api/coach/adapt-week', methods=['POST'])
+@api_login_required
 def api_adapt_week():
     """Generate adapted workout suggestions for the week."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     cycle_id = data.get('cycle_id')
@@ -3179,14 +3220,13 @@ def api_adapt_week():
 
 
 @app.route('/api/coach/apply-adaptation', methods=['POST'])
+@api_login_required
 def api_apply_adaptation():
     """
     Apply an AI-suggested workout to the schedule.
     Replaces existing workout for that date and marks missed workouts as skipped.
     """
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     data = request.json
     cycle_id = data.get('cycle_id')
@@ -3251,7 +3291,7 @@ def api_apply_adaptation():
         
         # 3. Mark the adaptation as applied
         if adaptation_id:
-            db_coach.mark_adaptation_applied(adaptation_id, suggestion_index)
+            db_coach.mark_adaptation_applied(adaptation_id, suggestion_index, user['id'])
         
         return jsonify({
             'success': True,
@@ -3264,7 +3304,8 @@ def api_apply_adaptation():
         print(f"Apply adaptation error: {e}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        app.logger.exception('Unhandled error')
+        return jsonify({'error': 'Something went wrong'}), 500
     
 
 # ------------------------------
@@ -3272,11 +3313,10 @@ def api_apply_adaptation():
 # ------------------------------
 
 @app.route('/api/coach/usage')
+@api_login_required
 def api_coach_usage():
     """Get AI usage statistics for current user."""
     user = get_current_user()
-    if not user:
-        return jsonify({'error': 'Not authenticated'}), 401
     
     days = int(request.args.get('days', 30))
     stats = db_coach.get_ai_usage_stats(user['id'], days)
