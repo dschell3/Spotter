@@ -2,14 +2,22 @@ from supabase import create_client, Client
 from config import Config
 
 def get_supabase_client() -> Client:
-    """Get a Supabase client instance."""
-    return create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
+    """Get a Supabase client instance using the service role key.
 
-def get_authenticated_client(access_token: str) -> Client:
-    """Get a Supabase client authenticated with user's token for RLS."""
-    client = create_client(Config.SUPABASE_URL, Config.SUPABASE_KEY)
-    client.auth.set_session(access_token, "")
-    return client
+    The server performs all data access with the service_role key, which
+    bypasses RLS. Authorization is enforced at the application layer (session
+    auth + explicit user_id / ownership checks on every query). The anon
+    SUPABASE_KEY is reserved for the browser-side Supabase Auth handshake only.
+    """
+    return create_client(Config.SUPABASE_URL, Config.SUPABASE_SERVICE_KEY)
+
+
+def get_owned_row(table: str, row_id: str, user_id: str, id_col: str = 'id'):
+    """Fetch a row only if it belongs to user_id. Returns None otherwise."""
+    res = (get_supabase_client().table(table)
+           .select('*').eq(id_col, row_id).eq('user_id', user_id)
+           .limit(1).execute())
+    return res.data[0] if res.data else None
 
 
 # ============================================
@@ -111,7 +119,7 @@ def get_routine(split_type: str = 'ppl_3day'):
 # USER WORKOUT QUERIES (require auth)
 # ============================================
 
-def create_user_workout(user_id: str, template_id: str, template_name: str, access_token: str):
+def create_user_workout(user_id: str, template_id: str, template_name: str):
     """Create a new workout session for a user."""
     supabase = get_supabase_client()
     
@@ -124,7 +132,7 @@ def create_user_workout(user_id: str, template_id: str, template_name: str, acce
     return response.data[0] if response.data else None
 
 
-def save_workout_sets(user_workout_id: str, sets_data: list, access_token: str):
+def save_workout_sets(user_workout_id: str, sets_data: list):
     """Save all sets for a workout."""
     supabase = get_supabase_client()
     
@@ -147,7 +155,7 @@ def save_workout_sets(user_workout_id: str, sets_data: list, access_token: str):
     return []
 
 
-def complete_user_workout(workout_id: str, access_token: str):
+def complete_user_workout(workout_id: str):
     """Mark a workout as completed."""
     supabase = get_supabase_client()
     
@@ -160,7 +168,7 @@ def complete_user_workout(workout_id: str, access_token: str):
     return response.data[0] if response.data else None
 
 
-def get_user_workouts(user_id: str, access_token: str, limit: int = 20):
+def get_user_workouts(user_id: str, limit: int = 20):
     """Get recent workouts for a user."""
     supabase = get_supabase_client()
     
@@ -174,7 +182,7 @@ def get_user_workouts(user_id: str, access_token: str, limit: int = 20):
     return response.data
 
 
-def get_workout_with_sets(workout_id: str, access_token: str):
+def get_workout_with_sets(workout_id: str):
     """Get a workout with all its sets."""
     supabase = get_supabase_client()
     

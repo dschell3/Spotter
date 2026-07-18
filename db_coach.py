@@ -408,21 +408,22 @@ def create_recommendation(user_id: str, cycle_id: str, rec_type: str,
     return response.data[0] if response.data else None
 
 
-def update_recommendation_status(recommendation_id: str, status: str) -> Dict:
-    """Update recommendation status (applied, dismissed)."""
+def update_recommendation_status(recommendation_id: str, status: str, user_id: str) -> Dict:
+    """Update recommendation status (applied, dismissed) for a user's own row."""
     supabase = get_supabase_client()
-    
+
     update_data = {'status': status}
     if status == 'applied':
         update_data['applied_at'] = datetime.utcnow().isoformat()
     elif status == 'dismissed':
         update_data['dismissed_at'] = datetime.utcnow().isoformat()
-    
+
     response = supabase.table('coach_recommendations')\
         .update(update_data)\
         .eq('id', recommendation_id)\
+        .eq('user_id', user_id)\
         .execute()
-    
+
     return response.data[0] if response.data else None
 
 
@@ -449,10 +450,10 @@ def save_adaptation_request(user_id: str, cycle_id: str, context: Dict,
     return response.data[0] if response.data else None
 
 
-def mark_adaptation_applied(adaptation_id: str, suggestion_index: int) -> Dict:
-    """Mark an adaptation as applied."""
+def mark_adaptation_applied(adaptation_id: str, suggestion_index: int, user_id: str) -> Dict:
+    """Mark a user's own adaptation as applied."""
     supabase = get_supabase_client()
-    
+
     response = supabase.table('adapted_workouts')\
         .update({
             'applied': True,
@@ -460,8 +461,9 @@ def mark_adaptation_applied(adaptation_id: str, suggestion_index: int) -> Dict:
             'selected_suggestion_index': suggestion_index
         })\
         .eq('id', adaptation_id)\
+        .eq('user_id', user_id)\
         .execute()
-    
+
     return response.data[0] if response.data else None
 
 

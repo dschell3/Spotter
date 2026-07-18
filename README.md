@@ -120,7 +120,11 @@ FLASK_ENV=development
 
 # Supabase
 SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your-anon-key
+SUPABASE_KEY=your-anon-key            # anon key: browser Supabase Auth handshake only
+SUPABASE_SERVICE_KEY=your-service-role-key  # SERVER-ONLY, never expose to the browser
+
+# Cron auth
+CRON_SECRET=random-secret-for-cron-auth
 
 # Google OAuth
 GOOGLE_CLIENT_ID=your-client-id
@@ -137,6 +141,27 @@ TWILIO_AUTH_TOKEN=xxx
 TWILIO_PHONE_NUMBER=+1xxxxxxxxxx
 CRON_SECRET=random-secret-for-cron-auth
 ```
+
+## Security Model
+
+Spotter uses a single trust boundary at the Flask server:
+
+- **Server = `service_role`**: The Flask backend performs all database access with
+  the Supabase `service_role` key (`SUPABASE_SERVICE_KEY`), which bypasses RLS.
+  Authorization is enforced entirely at the application layer — session-based auth
+  plus explicit `user_id` / ownership checks on every query that touches
+  user-owned data.
+- **PostgREST = fully locked**: `migrations/phase1_rls_lockdown.sql` enables RLS on
+  every table in `public` with no policies and revokes all direct privileges from
+  the `anon` and `authenticated` roles. Nothing can be read or written through the
+  public REST API. (Run this migration only *after* the service-role code is
+  deployed — see the header of that file.)
+- **Anon key = auth handshake only**: The browser anon key (`SUPABASE_KEY`) is used
+  solely for the client-side Supabase Auth (Google OAuth PKCE) flow. It is never
+  used to query application tables and must never be given the service key.
+
+The `SUPABASE_SERVICE_KEY` is server-only: it must never be rendered into a
+template, shipped in client-side JavaScript, or otherwise exposed to the browser.
 
 ## Database Setup
 
