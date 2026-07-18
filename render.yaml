@@ -14,3 +14,10 @@ services:
         sync: false
       - key: SUPABASE_KEY
         sync: false
+      # Server-only service role key (bypasses RLS). Set in the Render dashboard;
+      # never commit its value.
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # Shared secret for /api/cron/* endpoints (X-Cron-Secret header).
+      - key: CRON_SECRET
+        sync: false
