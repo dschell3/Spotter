@@ -2,6 +2,7 @@
 <html>
 <head>
     <title>Signing in...</title>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body {
@@ -42,12 +43,36 @@
         const SUPABASE_KEY = '{{ config.SUPABASE_KEY }}';
         
         const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        
+        const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]')?.content || '';
+
+        // POST the verified tokens to the server in the request body (never the URL,
+        // which would leak bearer tokens into logs and browser history).
+        async function completeSignin(session) {
+            const response = await fetch('/auth/google/complete', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': CSRF_TOKEN
+                },
+                body: JSON.stringify({
+                    access_token: session.access_token,
+                    refresh_token: session.refresh_token || ''
+                })
+            });
+
+            if (response.ok) {
+                window.location.href = '/';
+            } else {
+                window.location.href = '/login?error=' + encodeURIComponent('google_signin_failed');
+            }
+        }
+
         async function handleCallback() {
             try {
                 // Get session from URL (Supabase JS handles PKCE automatically)
                 const { data, error } = await supabaseClient.auth.getSession();
-                
+
                 if (error) {
                     console.error('Session error:', error);
                     document.getElementById('status').textContent = 'Sign-in failed...';
@@ -56,30 +81,29 @@
                     }, 1000);
                     return;
                 }
-                
+
                 if (data.session) {
-                    // Send tokens to server
-                    window.location.href = `/auth/google/complete?access_token=${data.session.access_token}&refresh_token=${data.session.refresh_token || ''}`;
+                    await completeSignin(data.session);
                 } else {
                     // No session yet, try to exchange code
                     const params = new URLSearchParams(window.location.search);
                     const code = params.get('code');
-                    
+
                     if (code) {
                         const { data: exchangeData, error: exchangeError } = await supabaseClient.auth.exchangeCodeForSession(code);
-                        
+
                         if (exchangeError) {
                             console.error('Exchange error:', exchangeError);
                             window.location.href = '/login?error=' + encodeURIComponent(exchangeError.message);
                             return;
                         }
-                        
+
                         if (exchangeData.session) {
-                            window.location.href = `/auth/google/complete?access_token=${exchangeData.session.access_token}&refresh_token=${exchangeData.session.refresh_token || ''}`;
+                            await completeSignin(exchangeData.session);
                             return;
                         }
                     }
-                    
+
                     // Fallback - no session or code
                     window.location.href = '/login?error=no_session';
                 }
@@ -88,7 +112,7 @@
                 window.location.href = '/login?error=' + encodeURIComponent(err.message);
             }
         }
-        
+
         handleCallback();
     </script>
 </body>

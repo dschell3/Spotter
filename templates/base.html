@@ -7,9 +7,13 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="Spotter">
-    <meta name="description" content="Personal workout tracking for hypertrophy training">    
+    <meta name="description" content="Personal workout tracking for hypertrophy training">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
     <title>{% block title %}Spotter{% endblock %}</title>
-    
+
+    <!-- Shared API helper: CSRF-aware fetch (apiFetch) + HTML escaping (esc) -->
+    <script src="{{ url_for('static', filename='js/api.js') }}"></script>
+
     <!-- PWA Manifest -->
     <link rel="manifest" href="/manifest.json">
     <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">

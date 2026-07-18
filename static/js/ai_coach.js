@@ -55,7 +55,7 @@ const AICoach = {
         });
         
         try {
-            const response = await fetch(`/api/coach/weight-suggestion/${exerciseId}?${params}`);
+            const response = await apiFetch(`/api/coach/weight-suggestion/${exerciseId}?${params}`);
             if (response.ok) {
                 const data = await response.json();
                 this.suggestionCache[cacheKey] = data;
@@ -75,7 +75,7 @@ const AICoach = {
      */
     async getWorkoutSuggestions(exercises) {
         try {
-            const response = await fetch('/api/coach/workout-suggestions', {
+            const response = await apiFetch('/api/coach/workout-suggestions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ exercises })
@@ -134,7 +134,7 @@ const AICoach = {
         if (!this.cycleId) return;
         
         try {
-            const response = await fetch(`/api/coach/check?cycle_id=${this.cycleId}`);
+            const response = await apiFetch(`/api/coach/check?cycle_id=${this.cycleId}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.has_recommendation) {
@@ -173,16 +173,16 @@ const AICoach = {
                     <div class="flex-1">
                         <div class="flex items-center gap-2 mb-2">
                             <span class="text-xl">${isDeload ? '📉' : '📈'}</span>
-                            <h3 class="font-semibold text-white">${prescription.title || 'Coach Recommendation'}</h3>
+                            <h3 class="font-semibold text-white">${esc(prescription.title || 'Coach Recommendation')}</h3>
                         </div>
-                        <p class="text-gray-300 text-sm mb-3">${prescription.explanation || ''}</p>
+                        <p class="text-gray-300 text-sm mb-3">${esc(prescription.explanation || '')}</p>
                         ${prescription.prescription ? `
                             <p class="text-white text-sm bg-black/30 rounded p-2 mb-3">
-                                <strong>This week:</strong> ${prescription.prescription}
+                                <strong>This week:</strong> ${esc(prescription.prescription)}
                             </p>
                         ` : ''}
                         ${prescription.motivation ? `
-                            <p class="text-gray-400 text-xs italic">${prescription.motivation}</p>
+                            <p class="text-gray-400 text-xs italic">${esc(prescription.motivation)}</p>
                         ` : ''}
                     </div>
                     <button onclick="AICoach.dismissBanner()" 
@@ -211,7 +211,7 @@ const AICoach = {
      */
     async applyRecommendation(recommendationId) {
         try {
-            const response = await fetch(`/api/coach/recommendation/${recommendationId}/apply`, {
+            const response = await apiFetch(`/api/coach/recommendation/${recommendationId}/apply`, {
                 method: 'POST'
             });
             
@@ -229,7 +229,7 @@ const AICoach = {
      */
     async dismissRecommendation(recommendationId) {
         try {
-            await fetch(`/api/coach/recommendation/${recommendationId}/dismiss`, {
+            await apiFetch(`/api/coach/recommendation/${recommendationId}/dismiss`, {
                 method: 'POST'
             });
             this.dismissBanner();
@@ -260,7 +260,7 @@ const AICoach = {
         if (!this.cycleId) return;
         
         try {
-            const response = await fetch(`/api/coach/adapt-check?cycle_id=${this.cycleId}`);
+            const response = await apiFetch(`/api/coach/adapt-check?cycle_id=${this.cycleId}`);
             if (response.ok) {
                 const data = await response.json();
                 if (data.show_option) {
@@ -282,7 +282,7 @@ const AICoach = {
         container.innerHTML = `
             <div class="flex items-center gap-2 text-sm text-amber-400 mt-2">
                 <span>⚡</span>
-                <span>${reason}</span>
+                <span>${esc(reason)}</span>
                 <button onclick="AICoach.openAdaptModal()"
                         class="text-cyan-400 hover:text-cyan-300 underline ml-1">
                     Adapt My Week
@@ -305,7 +305,7 @@ const AICoach = {
         
         // Call API
         try {
-            const response = await fetch('/api/coach/adapt-week', {
+            const response = await apiFetch('/api/coach/adapt-week', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -347,23 +347,23 @@ const AICoach = {
         let suggestionsHTML = '';
         suggestions.forEach((suggestion, index) => {
             const exercisesList = (suggestion.exercises || [])
-                .map(ex => `<li class="flex justify-between"><span>${ex.name}</span><span class="text-gray-500">${ex.sets}×${ex.reps}</span></li>`)
+                .map(ex => `<li class="flex justify-between"><span>${esc(ex.name)}</span><span class="text-gray-500">${esc(ex.sets)}×${esc(ex.reps)}</span></li>`)
                 .join('');
             
             suggestionsHTML += `
                 <div class="bg-dark-700 rounded-lg p-4 mb-4 border border-dark-500 hover:border-cyan-600 transition-colors">
                     <div class="flex justify-between items-start mb-2">
-                        <h4 class="font-semibold text-white">${suggestion.name}</h4>
-                        <span class="text-xs text-gray-500">${suggestion.estimated_minutes || 45} min</span>
+                        <h4 class="font-semibold text-white">${esc(suggestion.name)}</h4>
+                        <span class="text-xs text-gray-500">${esc(suggestion.estimated_minutes || 45)} min</span>
                     </div>
-                    <p class="text-sm text-gray-400 mb-3">${suggestion.rationale}</p>
+                    <p class="text-sm text-gray-400 mb-3">${esc(suggestion.rationale)}</p>
                     <ul class="text-sm space-y-1 text-gray-300 mb-3">
                         ${exercisesList}
                     </ul>
                     <div class="flex items-center justify-between">
                         <div class="flex gap-1 flex-wrap">
-                            ${(suggestion.muscles_covered || []).map(m => 
-                                `<span class="text-xs bg-dark-600 px-2 py-0.5 rounded">${m}</span>`
+                            ${(suggestion.muscles_covered || []).map(m =>
+                                `<span class="text-xs bg-dark-600 px-2 py-0.5 rounded">${esc(m)}</span>`
                             ).join('')}
                         </div>
                         <button onclick="AICoach.applySuggestion(${index}, ${JSON.stringify(suggestion).replace(/"/g, '&quot;')})"
@@ -376,9 +376,9 @@ const AICoach = {
         });
         
         const content = `
-            <p class="text-gray-300 mb-4">${data.situation_summary || ''}</p>
+            <p class="text-gray-300 mb-4">${esc(data.situation_summary || '')}</p>
             ${suggestionsHTML}
-            ${data.tip ? `<p class="text-sm text-gray-500 italic mt-4">💡 ${data.tip}</p>` : ''}
+            ${data.tip ? `<p class="text-sm text-gray-500 italic mt-4">💡 ${esc(data.tip)}</p>` : ''}
         `;
         
         this.showModal(content, 'Adapt Your Week');
@@ -393,7 +393,7 @@ const AICoach = {
         const scheduledDate = today.toISOString().split('T')[0];
         
         try {
-            const response = await fetch('/api/coach/apply-adaptation', {
+            const response = await apiFetch('/api/coach/apply-adaptation', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({

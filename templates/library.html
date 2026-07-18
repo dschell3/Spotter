@@ -111,7 +111,7 @@ async function loadCycles(reset = true) {
             params.append('split_type', splitType);
         }
         
-        const response = await fetch(`${endpoint}?${params}`);
+        const response = await apiFetch(`${endpoint}?${params}`);
         const data = await response.json();
         
         const cycles = templatesOnly ? data.templates : data.cycles;
@@ -172,14 +172,14 @@ function createCycleCard(cycle, isTemplate) {
     
     card.innerHTML = `
         <div class="flex items-start justify-between mb-2">
-            <h3 class="font-semibold text-gray-100">${cycle.title || cycleData.name || 'Untitled Cycle'}</h3>
+            <h3 class="font-semibold text-gray-100">${esc(cycle.title || cycleData.name || 'Untitled Cycle')}</h3>
             ${cycle.is_template ? '<span class="px-2 py-0.5 text-xs bg-accent/20 text-accent rounded">Template</span>' : ''}
         </div>
-        
-        ${cycle.description ? `<p class="text-sm text-gray-400 mb-3 line-clamp-2">${cycle.description}</p>` : ''}
-        
+
+        ${cycle.description ? `<p class="text-sm text-gray-400 mb-3 line-clamp-2">${esc(cycle.description)}</p>` : ''}
+
         <div class="flex flex-wrap gap-2 text-xs text-gray-500 mb-3">
-            <span>${splitDisplay[cycleData.split_type] || cycleData.split_type || 'Custom'}</span>
+            <span>${esc(splitDisplay[cycleData.split_type] || cycleData.split_type || 'Custom')}</span>
             <span>•</span>
             <span>${cycleData.length_weeks || '?'} weeks</span>
             <span>•</span>
@@ -188,7 +188,7 @@ function createCycleCard(cycle, isTemplate) {
         
         <div class="flex items-center justify-between text-xs">
             <div class="flex items-center gap-2">
-                <span class="text-gray-400">by ${isTemplate ? (cycle.trainer_name || 'Trainer') : (cycle.author_name || 'Anonymous')}</span>
+                <span class="text-gray-400">by ${esc(isTemplate ? (cycle.trainer_name || 'Trainer') : (cycle.author_name || 'Anonymous'))}</span>
                 ${cycle.is_trainer ? '<span class="text-accent">✓</span>' : ''}
             </div>
             <div class="flex items-center gap-3 text-gray-500">
@@ -199,7 +199,7 @@ function createCycleCard(cycle, isTemplate) {
         
         ${cycle.tags && cycle.tags.length > 0 ? `
             <div class="flex flex-wrap gap-1 mt-3">
-                ${cycle.tags.slice(0, 3).map(tag => `<span class="px-2 py-0.5 text-xs bg-dark-700 text-gray-400 rounded">${tag}</span>`).join('')}
+                ${cycle.tags.slice(0, 3).map(tag => `<span class="px-2 py-0.5 text-xs bg-dark-700 text-gray-400 rounded">${esc(tag)}</span>`).join('')}
                 ${cycle.tags.length > 3 ? `<span class="text-xs text-gray-500">+${cycle.tags.length - 3}</span>` : ''}
             </div>
         ` : ''}

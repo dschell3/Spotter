@@ -44,6 +44,7 @@
         
         <!-- Login Form -->
         <form method="POST" class="space-y-5">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <div>
                 <label for="email" class="block text-sm font-medium text-gray-400 mb-2">Email</label>
                 <input type="email" 

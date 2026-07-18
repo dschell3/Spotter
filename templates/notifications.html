@@ -326,7 +326,7 @@
     // API helper
     async function updatePreferences(updates) {
         try {
-            const response = await fetch('/api/notifications/preferences', {
+            const response = await apiFetch('/api/notifications/preferences', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(updates)
@@ -379,7 +379,7 @@
     
     async function updatePhoneNumber(phone, confirmed) {
         try {
-            const response = await fetch('/api/notifications/phone', {
+            const response = await apiFetch('/api/notifications/phone', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ phone_number: phone, confirmed })
@@ -518,7 +518,7 @@
         resultEl.classList.remove('hidden');
         
         try {
-            const response = await fetch('/api/cron/test-email', {
+            const response = await apiFetch('/api/cron/test-email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type })
@@ -547,7 +547,7 @@
         resultEl.classList.remove('hidden');
         
         try {
-            const response = await fetch('/api/cron/test-sms', {
+            const response = await apiFetch('/api/cron/test-sms', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ type })

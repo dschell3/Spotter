@@ -201,7 +201,7 @@
         if (!confirm('Start this cycle? This will generate your workout schedule.')) return;
         
         try {
-            const response = await fetch(`/api/cycle/${cycleId}/activate`, {
+            const response = await apiFetch(`/api/cycle/${cycleId}/activate`, {
                 method: 'POST'
             });
             
@@ -220,7 +220,7 @@
         if (!confirm('End this cycle? You can start a new one after.')) return;
         
         try {
-            const response = await fetch(`/api/cycle/${cycleId}/complete`, {
+            const response = await apiFetch(`/api/cycle/${cycleId}/complete`, {
                 method: 'POST'
             });
             
@@ -244,7 +244,7 @@
         {% endif %}
         
         try {
-            const response = await fetch(`/api/cycle/${cycleId}/delete`, {
+            const response = await apiFetch(`/api/cycle/${cycleId}/delete`, {
                 method: 'POST'
             });
             
@@ -262,7 +262,7 @@
     }
 
     async function shareCycle() {
-        const response = await fetch('/api/cycle/{{ cycle.id }}/share', {
+        const response = await apiFetch('/api/cycle/{{ cycle.id }}/share', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ is_public: false })
@@ -283,7 +283,7 @@
 
     async function updateShareSettings() {
         const isPublic = document.getElementById('share-public').checked;
-        await fetch('/api/cycle/{{ cycle.id }}/share', {
+        await apiFetch('/api/cycle/{{ cycle.id }}/share', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ is_public: isPublic })

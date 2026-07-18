@@ -640,7 +640,7 @@
         finishBtn.textContent = 'Saving...';
         
         try {
-            const response = await fetch('/api/workout/save-cycle', {
+            const response = await apiFetch('/api/workout/save-cycle', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -741,7 +741,7 @@
                 url += `&exclude=${encodeURIComponent(excludeIds)}`;
             }
             
-            const response = await fetch(url);
+            const response = await apiFetch(url);
             const data = await response.json();
             
             if (data.video) {
@@ -751,9 +751,9 @@
                 // Show suggestion for approval
                 suggestionDiv.innerHTML = `
                     <div class="flex items-start gap-3">
-                        <button onclick="openVideoModal('${data.video.url}', '${exerciseName}')"
+                        <button onclick="openVideoModal('${esc(data.video.url)}', '${esc(exerciseName)}')"
                                 class="relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-dark-600 hover:ring-2 hover:ring-accent transition-all">
-                            <img src="${data.video.thumbnail}" alt="Video thumbnail" class="w-full h-full object-cover">
+                            <img src="${esc(data.video.thumbnail)}" alt="Video thumbnail" class="w-full h-full object-cover">
                             <div class="absolute inset-0 flex items-center justify-center bg-black/30">
                                 <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
                                     <path d="M8 5v14l11-7z"/>
@@ -761,10 +761,10 @@
                             </div>
                         </button>
                         <div class="flex-1 min-w-0">
-                            <p class="text-xs text-gray-300 line-clamp-2">${data.video.title}</p>
-                            <p class="text-xs text-gray-500">${data.video.channel}${data.video.duration ? ' · ' + formatDuration(data.video.duration) : ''}</p>
+                            <p class="text-xs text-gray-300 line-clamp-2">${esc(data.video.title)}</p>
+                            <p class="text-xs text-gray-500">${esc(data.video.channel)}${data.video.duration ? ' · ' + formatDuration(data.video.duration) : ''}</p>
                             <div class="flex gap-2 mt-2">
-                                <button onclick="approveVideo('${exerciseId}', '${data.video.url}', ${exerciseIndex})"
+                                <button onclick="approveVideo('${esc(exerciseId)}', '${esc(data.video.url)}', ${exerciseIndex})"
                                         class="px-2 py-1 text-xs bg-accent text-dark-900 rounded hover:bg-accent/90">
                                     Use this
                                 </button>
@@ -846,14 +846,14 @@
         videoSection.dataset.exerciseName = exerciseName;
         
         // Clear on server then search with exclusions
-        fetch(`/api/exercises/${exerciseId}/clear-video`, { method: 'POST' })
+        apiFetch(`/api/exercises/${exerciseId}/clear-video`, { method: 'POST' })
             .then(() => searchVideo(exerciseIndex, excludedVideos))
             .catch(err => console.error('Clear video error:', err));
     }
     
     async function approveVideo(exerciseId, videoUrl, exerciseIndex) {
         try {
-            const response = await fetch(`/api/exercises/${exerciseId}/save-video`, {
+            const response = await apiFetch(`/api/exercises/${exerciseId}/save-video`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ video_url: videoUrl })
@@ -871,9 +871,9 @@
                 // Update to saved state
                 videoSection.innerHTML = `
                     <div class="video-saved flex items-center gap-3">
-                        <button onclick="openVideoModal('${videoUrl}', '${exerciseName}')"
+                        <button onclick="openVideoModal('${esc(videoUrl)}', '${esc(exerciseName)}')"
                                 class="relative flex-shrink-0 w-24 h-16 rounded-lg overflow-hidden bg-dark-600 hover:ring-2 hover:ring-accent transition-all">
-                            <img src="https://img.youtube.com/vi/${videoId}/mqdefault.jpg" 
+                            <img src="https://img.youtube.com/vi/${esc(videoId)}/mqdefault.jpg"
                                  alt="Video thumbnail" class="w-full h-full object-cover">
                             <div class="absolute inset-0 flex items-center justify-center bg-black/30">
                                 <svg class="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -949,7 +949,7 @@
         listEl.innerHTML = '<div class="text-center py-8 text-gray-500">Loading...</div>';
         
         try {
-            const response = await fetch(`/api/exercises/${encodeURIComponent(exercise.muscleGroup)}/substitutes?current=${exercise.id}`);
+            const response = await apiFetch(`/api/exercises/${encodeURIComponent(exercise.muscleGroup)}/substitutes?current=${exercise.id}`);
             const substitutes = await response.json();
             
             if (!substitutes.length) {
@@ -958,11 +958,11 @@
             }
             
             listEl.innerHTML = substitutes.map(sub => `
-                <button onclick="selectSubstitute('${sub.id}', '${escapeHtml(sub.name)}', '${sub.muscle_group}')"
+                <button onclick="selectSubstitute('${esc(sub.id)}', '${escapeHtml(sub.name)}', '${esc(sub.muscle_group)}')"
                         class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 transition-colors text-left">
                     <div>
                         <p class="text-gray-100">${escapeHtml(sub.name)}</p>
-                        <p class="text-xs text-gray-500 capitalize">${sub.equipment || 'bodyweight'}${sub.is_compound ? ' · Compound' : ''}</p>
+                        <p class="text-xs text-gray-500 capitalize">${esc(sub.equipment || 'bodyweight')}${sub.is_compound ? ' · Compound' : ''}</p>
                     </div>
                     <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
@@ -982,7 +982,7 @@
         if (isPermanent) {
             // Call API to update cycle
             try {
-                const response = await fetch('/api/cycle/exercise/swap-permanent', {
+                const response = await apiFetch('/api/cycle/exercise/swap-permanent', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({

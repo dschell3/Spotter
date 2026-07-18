@@ -181,7 +181,7 @@ async function copyCycle() {
     btn.textContent = 'Copying...';
     
     try {
-        const response = await fetch('/api/shared/cycle/{{ share_code }}/copy', {
+        const response = await apiFetch('/api/shared/cycle/{{ share_code }}/copy', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
         });

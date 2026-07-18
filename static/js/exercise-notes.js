@@ -22,7 +22,7 @@ const ExerciseNotes = {
         if (!exerciseIds || exerciseIds.length === 0) return;
         
         try {
-            const response = await fetch('/api/exercises/notes/bulk', {
+            const response = await apiFetch('/api/exercises/notes/bulk', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ exercise_ids: exerciseIds })
@@ -142,7 +142,7 @@ const ExerciseNotes = {
         }
         
         try {
-            const response = await fetch(`/api/exercises/${exerciseId}/note`, {
+            const response = await apiFetch(`/api/exercises/${exerciseId}/note`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ note_text: noteText })

@@ -418,7 +418,7 @@
         {% if current_user %}
         // User is logged in - save to database
         try {
-            const response = await fetch('/api/workout/save-local', {
+            const response = await apiFetch('/api/workout/save-local', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

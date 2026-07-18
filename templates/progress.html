@@ -689,7 +689,7 @@
         const timeframe = document.getElementById('timeframe-select').value;
         
         try {
-            const response = await fetch(`/api/progress/strength?exercises=${exerciseIds}&timeframe=${timeframe}`);
+            const response = await apiFetch(`/api/progress/strength?exercises=${exerciseIds}&timeframe=${timeframe}`);
             const data = await response.json();
             
             // Group data by exercise
@@ -1015,7 +1015,7 @@
     
     async function updatePRThreshold(threshold) {
         try {
-            await fetch('/api/profile/settings', {
+            await apiFetch('/api/profile/settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ pr_rep_threshold: parseInt(threshold) })
@@ -1121,7 +1121,7 @@
                             </svg>
                         </div>
                         <div class="flex-1 min-w-0">
-                            <p class="text-gray-100 text-sm truncate">${ex.name}</p>
+                            <p class="text-gray-100 text-sm truncate">${esc(ex.name)}</p>
                             <p class="text-xs text-gray-500">${ex.count || 0} sets logged${ex.is_compound ? ' · Compound' : ''}</p>
                         </div>
                     </button>
@@ -1192,8 +1192,8 @@
         const tagsHtml = selectedExercises.map((ex, idx) => `
             <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-xs font-medium"
                   style="background-color: ${chartColors[idx % chartColors.length]}22; color: ${chartColors[idx % chartColors.length]}; border: 1px solid ${chartColors[idx % chartColors.length]}44">
-                ${ex.name}
-                <button onclick="removeSelectedExercise('${ex.id}')" class="hover:opacity-70">
+                ${esc(ex.name)}
+                <button onclick="removeSelectedExercise('${esc(ex.id)}')" class="hover:opacity-70">
                     <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                     </svg>
@@ -1213,7 +1213,7 @@
     }
 
     async function sharePR(prId, exerciseName, weight, reps) {
-        const response = await fetch('/api/share/achievement', {
+        const response = await apiFetch('/api/share/achievement', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

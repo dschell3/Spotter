@@ -447,7 +447,7 @@
         previewContainer.innerHTML = '<div class="text-center text-gray-500 py-4"><div class="animate-pulse">Loading preview...</div></div>';
         
         try {
-            const response = await fetch(`/api/schedule/preview?split=${currentSplit}&days=${currentDays}`);
+            const response = await apiFetch(`/api/schedule/preview?split=${currentSplit}&days=${currentDays}`);
             const data = await response.json();
             
             if (data.error) {
@@ -534,7 +534,7 @@
             
             console.log('Sending payload:', payload);
             
-            const response = await fetch('/api/profile/settings', {
+            const response = await apiFetch('/api/profile/settings', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'

@@ -393,7 +393,7 @@
     async function fetchWorkoutStructure() {
         // Fetch from API to get proper rotation logic
         try {
-            const response = await fetch(`/api/schedule/preview?split=${cycleConfig.splitType}&days=${cycleConfig.daysPerWeek}`);
+            const response = await apiFetch(`/api/schedule/preview?split=${cycleConfig.splitType}&days=${cycleConfig.daysPerWeek}`);
             const data = await response.json();
             cachedScheduleData = data;
             return data;
@@ -463,7 +463,7 @@
     
     document.addEventListener('DOMContentLoaded', async () => {
         try {
-            const response = await fetch('/api/exercises');
+            const response = await apiFetch('/api/exercises');
             allExercises = await response.json();
         } catch (err) { console.error('Failed to load exercises:', err); }
         
@@ -670,8 +670,8 @@
                     <div class="schedule-tile flex items-center gap-3 p-3 bg-dark-700 rounded-lg border border-transparent transition-all"
                          data-schedule-idx="${originalIdx}">
                         <div class="flex-1 flex items-center gap-3">
-                            <input type="text" 
-                                   value="${workout.workoutName}"
+                            <input type="text"
+                                   value="${esc(workout.workoutName).replace(/"/g, '&quot;')}"
                                    onchange="updateWorkoutName(${originalIdx}, this.value)"
                                    placeholder="Workout name"
                                    class="flex-1 bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 focus:outline-none focus:border-accent">
@@ -699,8 +699,8 @@
                             </svg>
                         </div>
                         <div class="flex-1">
-                            <p class="font-medium text-gray-100">${workout.workoutName}</p>
-                            <p class="text-xs text-gray-500">${(workout.muscles || []).slice(0, 3).join(', ')}</p>
+                            <p class="font-medium text-gray-100">${esc(workout.workoutName)}</p>
+                            <p class="text-xs text-gray-500">${esc((workout.muscles || []).slice(0, 3).join(', '))}</p>
                         </div>
                         <select onchange="updateWorkoutDay(${originalIdx}, parseInt(this.value))"
                                 class="bg-dark-600 border border-dark-500 rounded-lg px-3 py-2 text-gray-100 text-sm focus:outline-none focus:border-accent">
@@ -989,7 +989,7 @@
         // Show info about rotation if applicable
         let rotationInfo = '';
         if (rotationWeeks > 1) {
-            rotationInfo = `<p class="text-xs text-accent mb-3">Week ${currentWeek} uses pattern "${relevantWeekPattern}" (${rotationWeeks}-week rotation)</p>`;
+            rotationInfo = `<p class="text-xs text-accent mb-3">Week ${currentWeek} uses pattern "${esc(relevantWeekPattern)}" (${rotationWeeks}-week rotation)</p>`;
         }
         
         container.innerHTML = rotationInfo + scheduleToShow.map((scheduleItem) => {
@@ -1010,7 +1010,7 @@
                 <div class="bg-dark-800 border border-dark-600 rounded-xl overflow-hidden" data-workout-idx="${wIdx}">
                     <div class="px-4 py-3 bg-dark-700 border-b border-dark-600 flex items-center justify-between">
                         <div>
-                            <h4 class="font-medium text-gray-100">${scheduleItem.workoutName}</h4>
+                            <h4 class="font-medium text-gray-100">${esc(scheduleItem.workoutName)}</h4>
                             <p class="text-xs text-gray-500">${dayNames[scheduleItem.dayOfWeek]}</p>
                         </div>
                         <button onclick="openModal('add', ${wIdx})" class="px-3 py-1 text-xs bg-dark-600 text-accent rounded-lg hover:bg-dark-500">+ Add</button>
@@ -1045,8 +1045,8 @@
                                         </svg>
                                     </div>
                                     <button onclick="openModal('swap', ${wIdx}, ${eIdx})" class="flex-1 text-left hover:bg-dark-600 rounded p-1 -m-1">
-                                        <p class="text-gray-100 text-sm">${ex.name}</p>
-                                        <p class="text-xs text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
+                                        <p class="text-gray-100 text-sm">${esc(ex.name)}</p>
+                                        <p class="text-xs text-gray-500 capitalize">${esc(ex.muscle_group)} · ${esc(ex.equipment || 'bodyweight')}</p>
                                     </button>
                                     <button onclick="removeExercise(${wIdx}, ${eIdx})" class="p-2 text-gray-600 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
@@ -1234,11 +1234,11 @@
         const filtered = allExercises.filter(e => (!search || e.name.toLowerCase().includes(search)) && (!muscle || e.muscle_group === muscle));
         
         document.getElementById('exercise-options').innerHTML = filtered.map(ex => `
-            <button onclick="selectExerciseById('${ex.id}')"
+            <button onclick="selectExerciseById('${esc(ex.id)}')"
                     class="w-full flex items-center justify-between p-3 bg-dark-700 rounded-lg hover:bg-dark-600 text-left">
                 <div>
-                    <p class="text-gray-100">${ex.name}</p>
-                    <p class="text-sm text-gray-500 capitalize">${ex.muscle_group} · ${ex.equipment || 'bodyweight'}</p>
+                    <p class="text-gray-100">${esc(ex.name)}</p>
+                    <p class="text-sm text-gray-500 capitalize">${esc(ex.muscle_group)} · ${esc(ex.equipment || 'bodyweight')}</p>
                 </div>
             </button>
         `).join('') || '<p class="text-center text-gray-500 py-4">No exercises found</p>';
@@ -1348,7 +1348,7 @@
         btn.disabled = true;
         
         try {
-            const response = await fetch('/api/exercises/generate-cues', {
+            const response = await apiFetch('/api/exercises/generate-cues', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, muscle_group: muscle, equipment })
@@ -1361,7 +1361,7 @@
             const container = document.getElementById('cues-container');
             container.innerHTML = cues.map((cue, i) => `
                 <div class="flex gap-2">
-                    <input type="text" class="cue-input flex-1 bg-dark-600 border border-dark-500 rounded px-2 py-1.5 text-sm text-gray-100" placeholder="Cue ${i+1}" value="${cue.replace(/"/g, '&quot;')}">
+                    <input type="text" class="cue-input flex-1 bg-dark-600 border border-dark-500 rounded px-2 py-1.5 text-sm text-gray-100" placeholder="Cue ${i+1}" value="${esc(cue).replace(/"/g, '&quot;')}">
                     <button onclick="removeCueInput(this)" class="text-gray-500 hover:text-red-400">×</button>
                 </div>
             `).join('');
@@ -1392,7 +1392,7 @@
         if (!name || !muscle) { alert('Enter name and muscle group'); return; }
         
         try {
-            const response = await fetch('/api/exercises/add', {
+            const response = await apiFetch('/api/exercises/add', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, muscle_group: muscle, equipment, cues })
@@ -1461,7 +1461,7 @@
                 }
             }
             
-            const response = await fetch('/api/cycle/create', {
+            const response = await apiFetch('/api/cycle/create', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
